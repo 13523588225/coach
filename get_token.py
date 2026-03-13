@@ -26,7 +26,7 @@ API_PARAMS = {
 ODPS_PROJECT = "coach_marketing_hub"  # 替换为你的DataWorks项目名
 ODPS_TABLE = "ods_api_demo"  # 替换为要写入的表名
 # 若需指定ODPS endpoint（非必须，DataWorks内置环境自动识别）
-options.end_point = "http://service.cn.maxcompute.aliyun.com/api"
+# options.end_point = "http://service.cn.maxcompute.aliyun.com/api"
 
 
 # ===================== 2. 核心函数：读取接口数据 =====================
