@@ -1,3 +1,9 @@
+'''PyODPS 3
+请确保不要使用从 MaxCompute下载数据来处理。下载数据操作常包括Table/Instance的open_reader以及 DataFrame的to_pandas方法。
+推荐使用 MaxFrame DataFrame（从 MaxCompute 表创建）来处理数据，MaxFrame DataFrame数据计算发生在MaxCompute集群，无需拉数据至本地。
+MaxFrame相关介绍及使用可参考：https://help.aliyun.com/zh/maxcompute/user-guide/maxframe
+'''
+
 import requests
 import pandas as pd
 from odps import ODPS
@@ -17,8 +23,8 @@ API_PARAMS = {
 }
 
 # DataWorks/ODPS 配置（DataWorks内置环境可直接用默认配置，无需改ak/sk）
-ODPS_PROJECT = "your_project_name"  # 替换为你的DataWorks项目名
-ODPS_TABLE = "your_table_name"  # 替换为要写入的表名
+ODPS_PROJECT = "coach_marketing_hub"  # 替换为你的DataWorks项目名
+ODPS_TABLE = "ods_api_demo"  # 替换为要写入的表名
 # 若需指定ODPS endpoint（非必须，DataWorks内置环境自动识别）
 options.end_point = "http://service.cn.maxcompute.aliyun.com/api"
 
@@ -68,9 +74,6 @@ def write_to_dataworks(data):
     # 数据格式化（适配数据表结构，示例：新增写入时间、扁平化数据）
     write_data = {
         "access_token": data.get("access_token", ""),
-        "token_type": data.get("token_type", ""),
-        "expires_in": data.get("expires_in", 0),
-        "scope": data.get("scope", ""),
         "write_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")  # 写入时间戳
     }
 
@@ -83,9 +86,6 @@ def write_to_dataworks(data):
             # 按表字段顺序构造数据行（需与你的表结构完全匹配）
             row = [
                 write_data["access_token"],
-                write_data["token_type"],
-                write_data["expires_in"],
-                write_data["scope"],
                 write_data["write_time"]
             ]
             writer.write([row])
