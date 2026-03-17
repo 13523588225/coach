@@ -1,0 +1,140 @@
+-- python 脚本名.py --start_date 20260310 --end_date 20260312
+
+CREATE TABLE IF NOT EXISTS ods_mz_adm_cms_campaigns_list_api_df (
+    campaign_id        STRING COMMENT '活动ID',
+    start_date         STRING COMMENT '活动开始日期',
+    end_date           STRING COMMENT '活动结束日期',
+    advertiser_name    STRING COMMENT '广告主名称',
+    agency_name        STRING COMMENT '代理商名称',
+    brand_name         STRING COMMENT '品牌名称',
+    calculation_type   STRING COMMENT '计算类型',
+    campaign_name      STRING COMMENT '活动名称',
+    campaign_type      STRING COMMENT '活动类型',
+    creator_name       STRING COMMENT '创建人',
+    description        STRING COMMENT '活动描述',
+    linked_iplib       STRING COMMENT '关联IP库',
+    linked_panels      STRING COMMENT '关联面板',
+    linked_siteids     STRING COMMENT '关联站点ID',
+    slot_type          STRING COMMENT '广告位类型',
+    pre_parse_raw_text STRING COMMENT '源解析文本',
+    etl_date           STRING COMMENT '数据落地时间'
+)
+COMMENT '秒针活动信息表（CMS campaigns list接口）'
+PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd')
+STORED AS ORC
+TBLPROPERTIES ('orc.compress'='SNAPPY');
+
+
+CREATE TABLE IF NOT EXISTS ods_mz_adm_admonitor_basic_show_api_di (
+    campaign_id          STRING COMMENT '活动ID',
+    start_date           STRING COMMENT '活动开始日期',
+    end_date             STRING COMMENT '活动结束日期',
+    date                 STRING COMMENT '数据日期',
+    version              STRING COMMENT '版本号',
+    platform             STRING COMMENT '投放平台',
+    total_spot_num       STRING COMMENT '本次请求涉及的spot个数总量，使用limit分页时应参考该指标，对于输入的limit值，M小于该指标且M+N不超过该指标即可。',
+    audience             STRING COMMENT '报告受众人群维度，overall（所有网民）或stable（稳定人群）或target（目标人群）。',
+    target_id            STRING COMMENT '目标人群ID，当by_audience=target时可用',
+    publisher_id         STRING COMMENT '媒体ID，当by_position=publisher/spot/keyword时可用',
+    spot_id              STRING COMMENT '点位ID，当by_position=spot/keyword时可用',
+    keyword_id           STRING COMMENT '关键词ID，当by_position=keyword时可用',
+    region_id            STRING COMMENT '地域ID',
+    universe             STRING COMMENT '',
+    imp_acc              STRING COMMENT '累计曝光，metrics=acc/all时可用',
+    clk_acc              STRING COMMENT '累计点击，metrics=acc/all时可用',
+    uim_acc              STRING COMMENT '累计UV，metrics=acc/all时可用',
+    ucl_acc              STRING COMMENT '累计Clicker，metrics=acc/all时可用',
+    imp_day              STRING COMMENT '当日曝光，metrics=day/all时可用，by_audience=target时无效',
+    clk_day              STRING COMMENT '当日点击，metrics=day/all时可用，by_audience=target时无效',
+    uim_day              STRING COMMENT '当日UV，metrics=day/all时可用，by_audience=target时无效',
+    ucl_day              STRING COMMENT '当日Clicker，metrics=day/all时可用，by_audience=target时无效',
+    imp_avg_day          STRING COMMENT '日均曝光，metrics=avg_day/all时可用',
+    clk_avg_day          STRING COMMENT '日均点击，metrics=avg_day/all时可用',
+    uim_avg_day          STRING COMMENT '日均UV，metrics=avg_day/all时可用',
+    ucl_avg_day          STRING COMMENT '日均Clicker，metrics=avg_day/all时可用',
+    imp_acc_h00          STRING COMMENT '00点累计曝光，metrics=acc_hrs/all时可用',
+    imp_acc_h23          STRING COMMENT '23点累计曝光，metrics=acc_hrs/all时可用',
+    clk_acc_h00          STRING COMMENT '00点累计点击，metrics=acc_hrs/all时可用',
+    clk_acc_h23          STRING COMMENT '23点累计点击，metrics=acc_hrs/all时可用',
+    pre_parse_raw_text STRING COMMENT '源解析文本',
+    etl_date             STRING COMMENT '数据落地时间'
+)
+COMMENT '秒针投放日报数据表（admonitor basic show接口）'
+PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd')
+STORED AS ORC
+TBLPROPERTIES ('orc.compress'='SNAPPY');
+
+
+-- 创建秒针活动列表分区表
+CREATE TABLE IF NOT EXISTS ods_mz_tvm_cms_campaigns_list_api_df (
+    campaign_id BIGINT COMMENT '活动ID（主键）',
+    start_time STRING COMMENT '活动开始时间（yyyy-MM-dd）',
+    end_time STRING COMMENT '活动结束时间（yyyy-MM-dd）',
+    order_id STRING COMMENT '订单ID（可为空）',
+    scheduling STRING COMMENT '排期信息（可为空）',
+    campaign_name STRING COMMENT '活动名称',
+    description STRING COMMENT '活动描述',
+    created_time STRING COMMENT '活动创建时间（yyyy-MM-dd HH:mm:ss）',
+    advertiser STRING COMMENT '广告主名称',
+    agency STRING COMMENT '代理商名称',
+    brand STRING COMMENT '品牌名称',
+    status STRING COMMENT '活动状态（going-进行中/finished-已结束等）',
+    verify_version INT COMMENT '审核版本号',
+    total_net_id STRING COMMENT '总网络ID（可为空）',
+    calculate_type STRING COMMENT '计算类型（可为空）',
+    totalnet_version STRING COMMENT '总网络版本（可为空）',
+    sivt_region STRING COMMENT 'SIVT区域（可为空）',
+    target_list STRING COMMENT '目标列表（可为空，JSON格式）',
+    order_title STRING COMMENT '订单标题（可为空）',
+    pre_parse_raw_text STRING COMMENT '源解析文本',
+    etl_time STRING COMMENT '数据采集时间（yyyy-MM-dd HH:mm:ss）'
+)
+PARTITIONED BY (
+    dt STRING COMMENT '广告活动-用户账户下的所有活动'
+)
+COMMENT '秒针TV监测-活动列表数据（API采集）'
+STORED AS ORC
+TBLPROPERTIES (
+    'orc.compress' = 'SNAPPY',  -- ORC压缩格式
+    'comment' = '秒针TVMonitor活动列表原始数据，按采集日期分区'
+);
+
+
+CREATE TABLE IF NOT EXISTS ods_mz_tvm_admonitor_basic_show_api_di (
+    campaign_id          STRING COMMENT '活动ID',
+    start_date           STRING COMMENT '活动开始日期',
+    end_date             STRING COMMENT '活动结束日期',
+    date                 STRING COMMENT '数据日期',
+    version              STRING COMMENT '版本号',
+    platform             STRING COMMENT '投放平台',
+    total_spot_num       STRING COMMENT '本次请求涉及的spot个数总量，使用limit分页时应参考该指标，对于输入的limit值，M小于该指标且M+N不超过该指标即可。',
+    audience             STRING COMMENT '报告受众人群维度，overall（所有网民）或stable（稳定人群）或target（目标人群）。',
+    target_id            STRING COMMENT '目标人群ID，当by_audience=target时可用',
+    publisher_id         STRING COMMENT '媒体ID，当by_position=publisher/spot/keyword时可用',
+    spot_id              STRING COMMENT '点位ID，当by_position=spot/keyword时可用',
+    keyword_id           STRING COMMENT '关键词ID，当by_position=keyword时可用',
+    region_id            STRING COMMENT '地域ID',
+    universe             STRING COMMENT '',
+    imp_acc              STRING COMMENT '累计曝光，metrics=acc/all时可用',
+    clk_acc              STRING COMMENT '累计点击，metrics=acc/all时可用',
+    uim_acc              STRING COMMENT '累计UV，metrics=acc/all时可用',
+    ucl_acc              STRING COMMENT '累计Clicker，metrics=acc/all时可用',
+    imp_day              STRING COMMENT '当日曝光，metrics=day/all时可用，by_audience=target时无效',
+    clk_day              STRING COMMENT '当日点击，metrics=day/all时可用，by_audience=target时无效',
+    uim_day              STRING COMMENT '当日UV，metrics=day/all时可用，by_audience=target时无效',
+    ucl_day              STRING COMMENT '当日Clicker，metrics=day/all时可用，by_audience=target时无效',
+    imp_avg_day          STRING COMMENT '日均曝光，metrics=avg_day/all时可用',
+    clk_avg_day          STRING COMMENT '日均点击，metrics=avg_day/all时可用',
+    uim_avg_day          STRING COMMENT '日均UV，metrics=avg_day/all时可用',
+    ucl_avg_day          STRING COMMENT '日均Clicker，metrics=avg_day/all时可用',
+    imp_acc_h00          STRING COMMENT '00点累计曝光，metrics=acc_hrs/all时可用',
+    imp_acc_h23          STRING COMMENT '23点累计曝光，metrics=acc_hrs/all时可用',
+    clk_acc_h00          STRING COMMENT '00点累计点击，metrics=acc_hrs/all时可用',
+    clk_acc_h23          STRING COMMENT '23点累计点击，metrics=acc_hrs/all时可用',
+    pre_parse_raw_text STRING COMMENT '源解析文本',
+    etl_date             STRING COMMENT '数据落地时间'
+)
+COMMENT '秒针投放日报数据表（admonitor basic show接口）'
+PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd')
+STORED AS ORC
+TBLPROPERTIES ('orc.compress'='SNAPPY');
