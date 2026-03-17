@@ -44,8 +44,7 @@ PARTITIONED BY (
 COMMENT '活动周表'
 ;
 
-
-CREATE TABLE IF NOT EXISTS campaign_reach_analysis (
+CREATE TABLE IF NOT EXISTS ods_mz_ad_campaign_weekly_report_oss_di (
     fiscal_year           STRING COMMENT '财年（如FY26）',
     fiscal_period         STRING COMMENT '财期（如P1）',
     fiscal_week           STRING COMMENT '财周（如W1）',
