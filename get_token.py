@@ -15,9 +15,13 @@ API_PARAMS = {
     "client_secret": "e65798fb-85d6-4c56-aa19-a2435e8fef18"
 }
 
+
 # DataWorks/ODPS 配置
-ODPS_PROJECT = "coach_marketing_hub"
+ODPS_PROJECT =  ODPS().project
 ODPS_TABLE = "ods_api_demo"
+
+print(f"当前项目{ODPS().project}")
+
 # options.end_point = "http://service.cn.maxcompute.aliyun.com/api"
 # 开启MaxFrame优化（符合官方规范，避免本地下载数据）
 # options.sql.use_maxframe = True
@@ -74,6 +78,9 @@ def write_to_dataworks(data):
         if not o.exist_table(ODPS_TABLE):
             raise Exception(f"数据表 {ODPS_TABLE} 不存在，请先创建")
         
+        o.execute_sql(f"TRUNCATE TABLE {ODPS_TABLE}")
+        print(f"已清空表 {ODPS_TABLE}")
+
         # 写入数据（追加模式，无分区）
         table = o.get_table(ODPS_TABLE)
         with table.open_writer(partition=None, create_partition=False) as writer:
@@ -91,7 +98,7 @@ if __name__ == "__main__":
         api_data = fetch_api_data()
         
         # 步骤2：写入DataWorks
-        # write_to_dataworks(api_data)
+        write_to_dataworks(api_data)
         
         print("全流程执行完成！")
 
