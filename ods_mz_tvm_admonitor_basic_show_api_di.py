@@ -1,516 +1,343 @@
 # -*- coding: utf-8 -*-
 import requests
 import json
-import os
-from datetime import datetime, timedelta
 import time
 import argparse
 import urllib3
-from typing import Dict, List, Optional, Any
-from odps import ODPS, options, TableSchema, Partition  # MaxCompute SDK
-from odps.models import Column
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+from odps import ODPS
 
 # ===================== 基础配置 =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-requests.packages.urllib3.disable_warnings()
 
-# 1. 本地保存配置（DataWorks中可注释，仅用于本地调试）
-# LOCAL_SAVE_DIR = "./miaozhen_data"
-# FILE_ENCODING = "utf-8"
-
-# 2. 秒针接口配置
+# 1. 秒针接口配置
 API_CONFIG = {
     "token_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/token/get",
     "campaign_list_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/campaigns/list",
     "report_basic_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/reports/basic/show",
-    "auth": {
-        "username": "Coach_api",
-        "password": "Coachapi2026"
-    },
+    "auth": {"username": "Coach_api", "password": "Coachapi2026"},
     "timeout": 30,
-    "request_interval": 0.2,
-    "debug": False  # DataWorks中建议关闭debug，减少日志输出
+    "request_interval": 0.2
 }
 
-# 3. MaxCompute配置（DataWorks自动鉴权版）
-# 仅需配置项目名，无需access_id/access_key
-MAXCOMPUTE_CONFIG = {
-    "project": "your_maxcompute_project_name",  # 替换为你的MaxCompute项目名（与DataWorks一致）
-    "endpoint": "http://service.maxcompute.aliyun-inc.com/api"  # DataWorks内网Endpoint
-}
-
-# 4. 表名配置
+# 2. ODPS配置（DataWorks自动鉴权）
+ODPS_PROJECT = ODPS().project
 TABLE_NAMES = {
     "campaign": "ods_mz_tvm_cms_campaigns_list_api_df",
     "report": "ods_mz_tvm_admonitor_basic_show_api_di"
 }
 
 
-# ===================== MaxCompute初始化（DataWorks自动鉴权） =====================
-def init_odps_client() -> ODPS:
-    """
-    初始化MaxCompute客户端（DataWorks内置环境自动鉴权）
-    无需access_id/access_key，自动读取DataWorks容器内的鉴权信息
-    """
-    try:
-        # DataWorks自动鉴权：仅需传入project和endpoint，无需AK
-        odps = ODPS(
-            project=MAXCOMPUTE_CONFIG["project"],
-            endpoint=MAXCOMPUTE_CONFIG["endpoint"]
-        )
-
-        # DataWorks适配配置
-        options.tunnel.limit_instance_tunnel = False  # 关闭实例隧道限制
-        options.default_retry_times = 3  # 重试次数
-        options.charset = 'utf-8'  # 字符集
-        options.use_instance_tunnel = True  # 使用实例隧道（DataWorks推荐）
-
-        print("✅ MaxCompute客户端初始化成功（DataWorks自动鉴权）")
-        return odps
-    except Exception as e:
-        raise Exception(f"❌ MaxCompute客户端初始化失败：{str(e)}")
-
-
-# ===================== 命令行参数解析（DataWorks调度适配） =====================
+# ===================== 命令行参数解析 =====================
 def parse_args():
-    """
-    解析采集日期参数
-    DataWorks调度时可通过传参指定dt，或默认使用前一天日期
-    """
-    parser = argparse.ArgumentParser(description='秒针数据采集并写入MaxCompute（DataWorks版）')
-    parser.add_argument('--dt', type=str, default=None, help='采集日期（格式：yyyyMMdd），默认前一天')
+    parser = argparse.ArgumentParser(description='秒针数据采集（日期范围+有效期校验）')
+    parser.add_argument('--start_date', type=str, required=True, help='开始日期（yyyyMMdd）')
+    parser.add_argument('--end_date', type=str, required=True, help='结束日期（yyyyMMdd）')
     args = parser.parse_args()
 
-    # 处理默认日期（DataWorks调度常用：默认采集前一天数据）
-    if not args.dt:
-        yesterday = datetime.now() - timedelta(days=1)
-        args.dt = yesterday.strftime("%Y%m%d")
-    else:
-        # 日期格式校验
-        try:
-            datetime.strptime(args.dt, "%Y%m%d")
-        except ValueError:
-            raise ValueError(f"❌ 日期格式错误！dt={args.dt}，请使用yyyyMMdd格式")
+    # 日期格式&范围校验
+    try:
+        start_dt = datetime.strptime(args.start_date, "%Y%m%d")
+        end_dt = datetime.strptime(args.end_date, "%Y%m%d")
+        if start_dt > end_dt:
+            raise ValueError("开始日期不能晚于结束日期")
+    except ValueError as e:
+        raise ValueError(f"日期参数错误：{e}（格式要求yyyyMMdd）")
 
     return args
 
 
-# ===================== 通用工具函数 =====================
+# ===================== 核心工具函数 =====================
 def get_etl_time() -> str:
-    """获取当前时间戳（格式：yyyy-MM-dd HH:mm:ss）"""
+    """获取当前时间戳（yyyy-MM-dd HH:mm:ss）"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def get_date_str(dt: str) -> str:
-    """将yyyyMMdd转换为yyyy-MM-dd格式"""
-    return datetime.strptime(dt, "%Y%m%d").strftime("%Y-%m-%d")
-
-
-def safe_convert_type(value, target_type: str) -> Any:
-    """
-    安全转换数据类型（兼容空值）
-    :param value: 原始值
-    :param target_type: 目标类型（bigint/int/string）
-    :return: 转换后的值，失败返回None/空字符串
-    """
-    if value is None or value == "" or value == "null":
-        if target_type in ("bigint", "int"):
-            return None
-        else:
-            return ""
-
+def date_convert(date_str: str, to_format: str) -> str:
+    """日期格式转换：仅支持 yyyyMMdd <-> yyyy-MM-dd"""
     try:
-        if target_type == "bigint":
-            return int(value)
-        elif target_type == "int":
-            return int(value)
-        elif target_type == "string":
-            return str(value)
-        else:
-            return str(value)
-    except (ValueError, TypeError):
-        if target_type in ("bigint", "int"):
-            return None
-        else:
-            return str(value) if value is not None else ""
+        if to_format == "8位":
+            return datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y%m%d")
+        elif to_format == "10位":
+            return datetime.strptime(date_str, "%Y%m%d").strftime("%Y-%m-%d")
+    except ValueError:
+        return ""
+    return ""
 
 
-# ===================== 秒针接口调用函数 =====================
+def get_date_range(start_date: str, end_date: str) -> List[str]:
+    """生成日期范围内的所有日期（yyyyMMdd）"""
+    dates = []
+    current_dt = datetime.strptime(start_date, "%Y%m%d")
+    end_dt = datetime.strptime(end_date, "%Y%m%d")
+    while current_dt <= end_dt:
+        dates.append(current_dt.strftime("%Y%m%d"))
+        current_dt += timedelta(days=1)
+    return dates
+
+
+def is_date_in_campaign(check_date: str, camp_start: str, camp_end: str) -> bool:
+    """校验日期是否在活动有效期内"""
+    if not all([check_date, camp_start, camp_end]):
+        return False
+    try:
+        check_dt = datetime.strptime(check_date, "%Y%m%d")
+        return datetime.strptime(camp_start, "%Y-%m-%d") <= check_dt <= datetime.strptime(camp_end, "%Y-%m-%d")
+    except ValueError:
+        return False
+
+
+def to_string(value) -> str:
+    """强制转换为字符串"""
+    if value is None or value == "" or value == "null":
+        return ""
+    return str(value)
+
+
+# ===================== 秒针接口调用 =====================
 def get_miaozhen_token() -> str:
     """获取秒针Token"""
-    print("\n🔍 请求秒针Token...")
     try:
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        response = requests.post(
-            url=API_CONFIG["token_url"],
+        resp = requests.post(
+            API_CONFIG["token_url"],
             data=API_CONFIG["auth"],
-            headers=headers,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=API_CONFIG["timeout"],
             verify=False
         )
-        response.raise_for_status()
-
-        token_data = response.json()
+        resp.raise_for_status()
+        token_data = resp.json()
         if token_data.get("error_code") != 0:
-            raise Exception(f"Token错误 | 码：{token_data.get('error_code')} | 信息：{token_data.get('error_message')}")
-
+            raise Exception(f"Token错误：{token_data.get('error_message')}")
         access_token = token_data.get("result", {}).get("access_token")
         if not access_token:
-            raise Exception("Token为空！")
-
-        print("✅ Token获取成功")
-        return access_token
+            raise Exception("Token为空")
+        return to_string(access_token)
     except Exception as e:
-        raise Exception(f"❌ Token获取失败：{str(e)}")
+        raise Exception(f"获取Token失败：{str(e)}")
 
 
 def get_campaign_list(token: str) -> List[Dict]:
-    """
-    获取活动列表数据（适配MaxCompute表结构）
-    """
-    print("\n🔍 采集活动列表数据...")
+    """获取活动列表（所有字段转字符串）"""
     try:
-        request_url = f"{API_CONFIG['campaign_list_url']}?access_token={token}"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-
-        response = requests.get(
-            url=request_url,
-            headers=headers,
+        resp = requests.get(
+            f"{API_CONFIG['campaign_list_url']}?access_token={token}",
             timeout=API_CONFIG["timeout"],
             verify=False
         )
-        response.raise_for_status()
+        resp.raise_for_status()
+        campaigns = resp.json().get("result", {}).get("campaigns", [])
 
-        # 获取原始文本
-        api_raw_text = response.text
-        raw_response = json.loads(api_raw_text) if api_raw_text else {}
-
-        # 提取campaigns数组
-        campaigns = raw_response.get("result", {}).get("campaigns", [])
-        if not isinstance(campaigns, list):
-            campaigns = []
-
-        # 适配MaxCompute表结构
-        campaign_list = []
         etl_time = get_etl_time()
-        for campaign in campaigns:
-            if not isinstance(campaign, dict):
-                continue
-
-            # 单条campaign原始文本
-            single_raw_text = json.dumps(campaign, ensure_ascii=False)
-
-            # 按表结构映射字段 + 类型转换
-            campaign_row = {
-                "campaign_id": safe_convert_type(campaign.get("campaign_id"), "bigint"),
-                "start_time": safe_convert_type(campaign.get("start_time"), "string"),
-                "end_time": safe_convert_type(campaign.get("end_time"), "string"),
-                "order_id": safe_convert_type(campaign.get("order_id"), "string"),
-                "scheduling": safe_convert_type(campaign.get("scheduling"), "string"),
-                "campaign_name": safe_convert_type(campaign.get("campaign_name"), "string"),
-                "description": safe_convert_type(campaign.get("description"), "string"),
-                "created_time": safe_convert_type(campaign.get("created_time"), "string"),
-                "advertiser": safe_convert_type(campaign.get("advertiser"), "string"),
-                "agency": safe_convert_type(campaign.get("agency"), "string"),
-                "brand": safe_convert_type(campaign.get("brand"), "string"),
-                "status": safe_convert_type(campaign.get("status"), "string"),
-                "verify_version": safe_convert_type(campaign.get("verify_version"), "int"),
-                "total_net_id": safe_convert_type(campaign.get("total_net_id"), "string"),
-                "calculate_type": safe_convert_type(campaign.get("calculate_type"), "string"),
-                "totalnet_version": safe_convert_type(campaign.get("totalnet_version"), "string"),
-                "sivt_region": safe_convert_type(campaign.get("sivt_region"), "string"),
-                "target_list": safe_convert_type(campaign.get("target_list"), "string"),  # JSON格式
-                "order_title": safe_convert_type(campaign.get("order_title"), "string"),
-                "pre_parse_raw_text": single_raw_text,
-                "etl_time": etl_time
-            }
-            campaign_list.append(campaign_row)
-
-        print(f"✅ 活动列表解析完成 | 有效条数：{len(campaign_list)}")
-        return campaign_list
+        return [{
+            "campaign_id": to_string(c.get("campaign_id")),
+            "start_time": to_string(c.get("start_time")),
+            "end_time": to_string(c.get("end_time")),
+            "order_id": to_string(c.get("order_id")),
+            "scheduling": to_string(c.get("scheduling")),
+            "campaign_name": to_string(c.get("campaign_name")),
+            "description": to_string(c.get("description")),
+            "created_time": to_string(c.get("created_time")),
+            "advertiser": to_string(c.get("advertiser")),
+            "agency": to_string(c.get("agency")),
+            "brand": to_string(c.get("brand")),
+            "status": to_string(c.get("status")),
+            "verify_version": to_string(c.get("verify_version")),
+            "total_net_id": to_string(c.get("total_net_id")),
+            "calculate_type": to_string(c.get("calculate_type")),
+            "totalnet_version": to_string(c.get("totalnet_version")),
+            "sivt_region": to_string(c.get("sivt_region")),
+            "target_list": to_string(c.get("target_list")),
+            "order_title": to_string(c.get("order_title")),
+            "pre_parse_raw_text": to_string(json.dumps(c, ensure_ascii=False)),
+            "etl_time": to_string(etl_time)
+        } for c in campaigns if isinstance(c, dict)]
     except Exception as e:
-        raise Exception(f"❌ 活动列表采集失败：{str(e)}")
+        raise Exception(f"采集活动列表失败：{str(e)}")
 
 
-def get_daily_report_data(token: str, campaign_id: str, report_date: str) -> Optional[Dict]:
-    """
-    获取日报数据（适配MaxCompute表结构）
-    """
+def get_daily_report(token: str, campaign_id: str, report_date: str) -> Optional[Dict]:
+    """执行日报接口（所有字段转字符串）"""
     try:
-        request_url = f"{API_CONFIG['report_basic_url']}?access_token={token}"
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        params = {"campaign_id": campaign_id, "date": report_date}
-
-        response = requests.get(
-            url=request_url,
-            headers=headers,
-            params=params,
+        resp = requests.get(
+            f"{API_CONFIG['report_basic_url']}?access_token={token}",
+            params={"campaign_id": campaign_id, "date": report_date},
             timeout=API_CONFIG["timeout"],
             verify=False
         )
-        response.raise_for_status()
+        resp.raise_for_status()
+        raw_data = resp.json()
 
-        # 获取原始文本
-        api_raw_text = response.text
-        raw_report = json.loads(api_raw_text) if api_raw_text else {}
-
-        # 按表结构映射字段
-        report_row = {
-            "campaign_id": safe_convert_type(campaign_id, "string"),
-            "start_date": safe_convert_type(raw_report.get("start_date"), "string"),
-            "end_date": safe_convert_type(raw_report.get("end_date"), "string"),
-            "date": safe_convert_type(report_date, "string"),
-            "version": safe_convert_type(raw_report.get("version"), "string"),
-            "platform": safe_convert_type(raw_report.get("platform"), "string"),
-            "total_spot_num": safe_convert_type(raw_report.get("total_spot_num"), "string"),
-            "audience": safe_convert_type(raw_report.get("audience"), "string"),
-            "target_id": safe_convert_type(raw_report.get("target_id"), "string"),
-            "publisher_id": safe_convert_type(raw_report.get("publisher_id"), "string"),
-            "spot_id": safe_convert_type(raw_report.get("spot_id"), "string"),
-            "keyword_id": safe_convert_type(raw_report.get("keyword_id"), "string"),
-            "region_id": safe_convert_type(raw_report.get("region_id"), "string"),
-            "universe": safe_convert_type(raw_report.get("universe"), "string"),
-            "imp_acc": safe_convert_type(raw_report.get("imp_acc"), "string"),
-            "clk_acc": safe_convert_type(raw_report.get("clk_acc"), "string"),
-            "uim_acc": safe_convert_type(raw_report.get("uim_acc"), "string"),
-            "ucl_acc": safe_convert_type(raw_report.get("ucl_acc"), "string"),
-            "imp_day": safe_convert_type(raw_report.get("imp_day"), "string"),
-            "clk_day": safe_convert_type(raw_report.get("clk_day"), "string"),
-            "uim_day": safe_convert_type(raw_report.get("uim_day"), "string"),
-            "ucl_day": safe_convert_type(raw_report.get("ucl_day"), "string"),
-            "imp_avg_day": safe_convert_type(raw_report.get("imp_avg_day"), "string"),
-            "clk_avg_day": safe_convert_type(raw_report.get("clk_avg_day"), "string"),
-            "uim_avg_day": safe_convert_type(raw_report.get("uim_avg_day"), "string"),
-            "ucl_avg_day": safe_convert_type(raw_report.get("ucl_avg_day"), "string"),
-            "imp_acc_h00": safe_convert_type(raw_report.get("imp_acc_h00"), "string"),
-            "imp_acc_h23": safe_convert_type(raw_report.get("imp_acc_h23"), "string"),
-            "clk_acc_h00": safe_convert_type(raw_report.get("clk_acc_h00"), "string"),
-            "clk_acc_h23": safe_convert_type(raw_report.get("clk_acc_h23"), "string"),
-            "pre_parse_raw_text": api_raw_text,
-            "etl_date": get_etl_time().split(" ")[0]  # 格式：yyyy-MM-dd
+        return {
+            "campaign_id": to_string(campaign_id),
+            "start_date": to_string(raw_data.get("start_date")),
+            "end_date": to_string(raw_data.get("end_date")),
+            "date": to_string(report_date),
+            "version": to_string(raw_data.get("version")),
+            "platform": to_string(raw_data.get("platform")),
+            "total_spot_num": to_string(raw_data.get("total_spot_num")),
+            "audience": to_string(raw_data.get("audience")),
+            "target_id": to_string(raw_data.get("target_id")),
+            "publisher_id": to_string(raw_data.get("publisher_id")),
+            "spot_id": to_string(raw_data.get("spot_id")),
+            "keyword_id": to_string(raw_data.get("keyword_id")),
+            "region_id": to_string(raw_data.get("region_id")),
+            "universe": to_string(raw_data.get("universe")),
+            "imp_acc": to_string(raw_data.get("imp_acc")),
+            "clk_acc": to_string(raw_data.get("clk_acc")),
+            "imp_day": to_string(raw_data.get("imp_day")),
+            "clk_day": to_string(raw_data.get("clk_day")),
+            "uim_day": to_string(raw_data.get("uim_day")),
+            "ucl_day": to_string(raw_data.get("ucl_day")),
+            "imp_avg_day": to_string(raw_data.get("imp_avg_day")),
+            "clk_avg_day": to_string(raw_data.get("clk_avg_day")),
+            "uim_avg_day": to_string(raw_data.get("uim_avg_day")),
+            "ucl_avg_day": to_string(raw_data.get("ucl_avg_day")),
+            "imp_acc_h00": to_string(raw_data.get("imp_acc_h00")),
+            "imp_acc_h23": to_string(raw_data.get("imp_acc_h23")),
+            "clk_acc_h00": to_string(raw_data.get("clk_acc_h00")),
+            "clk_acc_h23": to_string(raw_data.get("clk_acc_h23")),
+            "pre_parse_raw_text": to_string(resp.text),
+            "etl_date": to_string(get_etl_time().split(" ")[0]),
+            "dt": to_string(date_convert(report_date, "8位"))
         }
-
-        if API_CONFIG["debug"]:
-            print(f"  📝 日报数据 | 活动{campaign_id} | 日期{report_date} | 解析完成")
-        return report_row
-
     except Exception as e:
-        print(f"  ❌ 活动{campaign_id} {report_date}日报采集失败：{str(e)}")
+        print(f"⚠️ 活动{campaign_id} {report_date}日报采集失败：{str(e)}")
         return None
 
 
-# ===================== MaxCompute数据写入函数（DataWorks适配） =====================
-def write_campaign_to_maxcompute(odps_client: ODPS, campaign_data: List[Dict], dt: str):
-    """
-    写入活动列表数据到MaxCompute（DataWorks适配）
-    """
-    if not campaign_data:
-        print(f"⚠️ 无活动数据可写入MaxCompute | 分区：{dt}")
+# ===================== ODPS写入 =====================
+def write_to_odps(table_name: str, data: List[List], dt: str):
+    """通用ODPS写入函数（清空分区+写入）"""
+    if not data:
+        print(f"⚠️ {table_name} 无数据可写入")
         return
 
-    try:
-        table_name = TABLE_NAMES["campaign"]
-        table = odps_client.get_table(table_name)
+    o = ODPS(project=ODPS_PROJECT)
+    if not o.exist_table(table_name):
+        raise Exception(f"表{table_name}不存在")
 
-        # 准备写入数据（按表字段顺序）
-        write_rows = []
-        for row in campaign_data:
-            write_row = [
-                row.get("campaign_id"),
-                row.get("start_time"),
-                row.get("end_time"),
-                row.get("order_id"),
-                row.get("scheduling"),
-                row.get("campaign_name"),
-                row.get("description"),
-                row.get("created_time"),
-                row.get("advertiser"),
-                row.get("agency"),
-                row.get("brand"),
-                row.get("status"),
-                row.get("verify_version"),
-                row.get("total_net_id"),
-                row.get("calculate_type"),
-                row.get("totalnet_version"),
-                row.get("sivt_region"),
-                row.get("target_list"),
-                row.get("order_title"),
-                row.get("pre_parse_raw_text"),
-                row.get("etl_time"),
-                dt  # 分区字段
-            ]
-            write_rows.append(write_row)
+    table = o.get_table(table_name)
+    partition_spec = f"dt='{dt}'"
 
-        # DataWorks推荐：使用instance tunnel批量写入
-        with table.open_writer(
-                partition=Partition(table, (dt,)),
-                create_partition=True,
-                tunnel_type='instance'  # 指定instance tunnel
-        ) as writer:
-            writer.write(write_rows)
+    # 清空分区（防重复）
+    if table.exist_partition(partition_spec):
+        o.execute_sql(f"ALTER TABLE {table_name} DROP PARTITION ({partition_spec})")
+        print(f"✅ 清空分区：{table_name}.{partition_spec}")
 
-        print(f"✅ 活动列表写入MaxCompute成功 | 表：{table_name} | 分区：{dt} | 条数：{len(write_rows)}")
-    except Exception as e:
-        raise Exception(f"❌ 活动列表写入MaxCompute失败 | 分区：{dt} | 错误：{str(e)}")
+    # 写入数据
+    with table.open_writer(partition=partition_spec, create_partition=True) as writer:
+        writer.write(data)
+    print(f"✅ 写入成功：{table_name} | 分区{dt} | 条数{len(data)}")
 
 
-def write_report_to_maxcompute(odps_client: ODPS, report_data: List[Dict], dt: str):
-    """
-    写入日报数据到MaxCompute（DataWorks适配）
-    """
-    if not report_data:
-        print(f"⚠️ 无日报数据可写入MaxCompute | 分区：{dt}")
-        return
-
-    try:
-        table_name = TABLE_NAMES["report"]
-        table = odps_client.get_table(table_name)
-
-        # 准备写入数据（按表字段顺序）
-        write_rows = []
-        for row in report_data:
-            write_row = [
-                row.get("campaign_id"),
-                row.get("start_date"),
-                row.get("end_date"),
-                row.get("date"),
-                row.get("version"),
-                row.get("platform"),
-                row.get("total_spot_num"),
-                row.get("audience"),
-                row.get("target_id"),
-                row.get("publisher_id"),
-                row.get("spot_id"),
-                row.get("keyword_id"),
-                row.get("region_id"),
-                row.get("universe"),
-                row.get("imp_acc"),
-                row.get("clk_acc"),
-                row.get("uim_acc"),
-                row.get("ucl_acc"),
-                row.get("imp_day"),
-                row.get("clk_day"),
-                row.get("uim_day"),
-                row.get("ucl_day"),
-                row.get("imp_avg_day"),
-                row.get("clk_avg_day"),
-                row.get("uim_avg_day"),
-                row.get("ucl_avg_day"),
-                row.get("imp_acc_h00"),
-                row.get("imp_acc_h23"),
-                row.get("clk_acc_h00"),
-                row.get("clk_acc_h23"),
-                row.get("pre_parse_raw_text"),
-                row.get("etl_date"),
-                dt  # 分区字段
-            ]
-            write_rows.append(write_row)
-
-        # DataWorks推荐：使用instance tunnel批量写入
-        with table.open_writer(
-                partition=Partition(table, (dt,)),
-                create_partition=True,
-                tunnel_type='instance'  # 指定instance tunnel
-        ) as writer:
-            writer.write(write_rows)
-
-        print(f"✅ 日报数据写入MaxCompute成功 | 表：{table_name} | 分区：{dt} | 条数：{len(write_rows)}")
-    except Exception as e:
-        raise Exception(f"❌ 日报数据写入MaxCompute失败 | 分区：{dt} | 错误：{str(e)}")
-
-
-# ===================== 主函数（DataWorks调度适配） =====================
+# ===================== 主流程 =====================
 def main():
-    """核心逻辑：采集数据 → 格式适配 → 写入MaxCompute（DataWorks版）"""
     try:
-        # 1. 解析参数（DataWorks调度传dt，默认前一天）
+        # 1. 解析参数
         args = parse_args()
-        partition_dt = args.dt  # 分区日期（yyyyMMdd）
-        report_date = get_date_str(partition_dt)  # 转换为yyyy-MM-dd格式
+        start_date = args.start_date
+        end_date = args.end_date
+        print(f"===== 开始采集：{start_date} ~ {end_date} =====")
 
-        # 打印任务信息
-        print("=" * 80)
-        print("秒针数据采集并写入MaxCompute（DataWorks自动鉴权版）")
-        print(f"执行时间：{get_etl_time()}")
-        print(f"采集日期：{partition_dt}（{report_date}）")
-        print(f"目标表1：{TABLE_NAMES['campaign']}")
-        print(f"目标表2：{TABLE_NAMES['report']}")
-        print("=" * 80)
-
-        # 2. 初始化MaxCompute客户端（DataWorks自动鉴权）
-        odps_client = init_odps_client()
-
-        # 3. 获取秒针Token
+        # 2. 获取Token
         token = get_miaozhen_token()
+        print(f"✅ Token获取成功")
 
-        # ========== 步骤1：采集并写入活动列表 ==========
-        print(f"\n🔹 步骤1：采集活动列表并写入MaxCompute")
+        # 3. 采集活动列表并写入
         campaign_data = get_campaign_list(token)
-        if campaign_data:
-            write_campaign_to_maxcompute(odps_client, campaign_data, partition_dt)
-        else:
-            print(f"⚠️ {partition_dt} 无有效活动数据")
+        campaign_write_data = [
+            [
+                c["campaign_id"],
+                c["start_time"],
+                c["end_time"],
+                c["order_id"],
+                c["scheduling"],
+                c["campaign_name"],
+                c["description"],
+                c["created_time"],
+                c["advertiser"],
+                c["agency"],
+                c["brand"],
+                c["status"],
+                c["verify_version"],
+                c["total_net_id"],
+                c["calculate_type"],
+                c["totalnet_version"],
+                c["sivt_region"],
+                c["target_list"],
+                c["order_title"],
+                c["pre_parse_raw_text"],
+                c["etl_time"],
+                to_string(datetime.now().strftime("%Y%m%d"))
+            ] for c in campaign_data
+        ]
+        write_to_odps(TABLE_NAMES["campaign"], campaign_write_data, datetime.now().strftime("%Y%m%d"))
 
-        # ========== 步骤2：采集并写入日报数据 ==========
-        print(f"\n🔹 步骤2：采集日报数据并写入MaxCompute")
-        report_data_list = []
-        # 遍历活动列表采集日报
-        for campaign in campaign_data:
-            camp_id = campaign.get("campaign_id")
-            if not camp_id:
-                continue
+        # 4. 遍历日期+活动，采集日报
+        report_data = []
+        for check_date in get_date_range(start_date, end_date):
+            print(f"\n📅 处理日期：{check_date}")
+            for campaign in campaign_data:
+                camp_id = campaign["campaign_id"]
+                if is_date_in_campaign(check_date, campaign["start_time"], campaign["end_time"]):
+                    report = get_daily_report(token, camp_id, date_convert(check_date, "10位"))
+                    if report:
+                        report_write_row = [
+                            report["campaign_id"],
+                            report["start_date"],
+                            report["end_date"],
+                            report["date"],
+                            report["version"],
+                            report["platform"],
+                            report["total_spot_num"],
+                            report["audience"],
+                            report["target_id"],
+                            report["publisher_id"],
+                            report["spot_id"],
+                            report["keyword_id"],
+                            report["region_id"],
+                            report["universe"],
+                            report["imp_acc"],
+                            report["clk_acc"],
+                            report["imp_day"],
+                            report["clk_day"],
+                            report["uim_day"],
+                            report["ucl_day"],
+                            report["imp_avg_day"],
+                            report["clk_avg_day"],
+                            report["uim_avg_day"],
+                            report["ucl_avg_day"],
+                            report["imp_acc_h00"],
+                            report["imp_acc_h23"],
+                            report["clk_acc_h00"],
+                            report["clk_acc_h23"],
+                            report["pre_parse_raw_text"],
+                            report["etl_date"],
+                            report["dt"]
+                        ]
+                        report_data.append(report_write_row)
+                    time.sleep(API_CONFIG["request_interval"])
+                else:
+                    print(f"⏩ 活动{camp_id} 不在有效期，跳过")
 
-            report_row = get_daily_report_data(token, str(camp_id), report_date)
-            if report_row:
-                report_data_list.append(report_row)
+        # 5. 写入日报数据
+        if report_data:
+            report_by_dt = {}
+            for row in report_data:
+                dt = row[-1]
+                report_by_dt.setdefault(dt, []).append(row)
+            for dt, rows in report_by_dt.items():
+                write_to_odps(TABLE_NAMES["report"], rows, dt)
 
-            time.sleep(API_CONFIG["request_interval"])
-
-        # 写入日报数据
-        if report_data_list:
-            write_report_to_maxcompute(odps_client, report_data_list, partition_dt)
-            print(f"✅ {partition_dt} 日报数据采集完成 | 条数：{len(report_data_list)}")
-        else:
-            print(f"⚠️ {partition_dt} 无有效日报数据")
-
-        # 任务总结
-        print("\n" + "=" * 80)
-        print("✅ 所有数据写入MaxCompute完成！")
-        print(f"📊 最终统计：")
-        print(f"   - 采集日期：{partition_dt}")
-        print(f"   - 活动列表：{len(campaign_data)} 条（写入 {TABLE_NAMES['campaign']}）")
-        print(f"   - 日报数据：{len(report_data_list)} 条（写入 {TABLE_NAMES['report']}）")
-        print("=" * 80)
+        print("\n===== 采集完成 =====")
+        print(f"📊 统计：活动{len(campaign_data)}个 | 有效日报{len(report_data)}条")
 
     except Exception as e:
-        print(f"\n❌ 任务执行失败：{str(e)}")
-        # DataWorks中抛出异常，触发任务失败告警
-        raise e
+        print(f"❌ 任务失败：{str(e)}")
+        raise
 
-
-# ===================== DataWorks部署说明 =====================
-"""
-### 1. DataWorks脚本部署步骤
-1. 登录DataWorks控制台 → 进入对应项目 → 数据开发 → 新建Python节点
-2. 将本代码复制到Python节点中
-3. 修改配置：
-   - MAXCOMPUTE_CONFIG["project"]：替换为你的MaxCompute项目名
-   - API_CONFIG["auth"]：确认秒针接口的账号密码正确
-4. 配置调度（可选）：
-   - 调度周期：按天调度
-   - 运行参数：--dt ${bdp.system.bizdate}（使用DataWorks业务日期）
-
-### 2. 依赖说明
-DataWorks内置环境已预装odps SDK，无需额外安装
-
-### 3. 权限说明
-确保DataWorks项目对应的RAM角色具备：
-- MaxCompute表的写入权限（INSERT）
-- MaxCompute分区的创建权限（ALTER）
-"""
 
 if __name__ == "__main__":
     main()
