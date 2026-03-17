@@ -1,3 +1,8 @@
+--MaxCompute SQL
+--********************************************************************--
+--author: SSOAliCloudMarketingHubAPPOPSPROD(Role)
+--create time: 2026-03-17 13:37:04
+--********************************************************************--
 -- python 脚本名.py --start_date 20260310 --end_date 20260312
 
 CREATE TABLE IF NOT EXISTS ods_mz_adm_cms_campaigns_list_api_df (
@@ -20,9 +25,7 @@ CREATE TABLE IF NOT EXISTS ods_mz_adm_cms_campaigns_list_api_df (
     etl_date           STRING COMMENT '数据落地时间'
 )
 COMMENT '秒针活动信息表（CMS campaigns list接口）'
-PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd')
-STORED AS ORC
-TBLPROPERTIES ('orc.compress'='SNAPPY');
+PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd');
 
 
 CREATE TABLE IF NOT EXISTS ods_mz_adm_admonitor_basic_show_api_di (
@@ -60,9 +63,7 @@ CREATE TABLE IF NOT EXISTS ods_mz_adm_admonitor_basic_show_api_di (
     etl_date             STRING COMMENT '数据落地时间'
 )
 COMMENT '秒针投放日报数据表（admonitor basic show接口）'
-PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd')
-STORED AS ORC
-TBLPROPERTIES ('orc.compress'='SNAPPY');
+PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd');
 
 
 -- 创建秒针活动列表分区表
@@ -89,15 +90,11 @@ CREATE TABLE IF NOT EXISTS ods_mz_tvm_cms_campaigns_list_api_df (
     pre_parse_raw_text STRING COMMENT '源解析文本',
     etl_time STRING COMMENT '数据采集时间（yyyy-MM-dd HH:mm:ss）'
 )
+comment '秒针TVMonitor活动列表原始数据，按'
 PARTITIONED BY (
-    dt STRING COMMENT '广告活动-用户账户下的所有活动'
+    dt STRING COMMENT '采集日期分区'
 )
-COMMENT '秒针TV监测-活动列表数据（API采集）'
-STORED AS ORC
-TBLPROPERTIES (
-    'orc.compress' = 'SNAPPY',  -- ORC压缩格式
-    'comment' = '秒针TVMonitor活动列表原始数据，按采集日期分区'
-);
+;
 
 
 CREATE TABLE IF NOT EXISTS ods_mz_tvm_admonitor_basic_show_api_di (
@@ -136,5 +133,4 @@ CREATE TABLE IF NOT EXISTS ods_mz_tvm_admonitor_basic_show_api_di (
 )
 COMMENT '秒针投放日报数据表（admonitor basic show接口）'
 PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd')
-STORED AS ORC
-TBLPROPERTIES ('orc.compress'='SNAPPY');
+;
