@@ -2,7 +2,6 @@
 import requests
 import json
 import time
-import argparse
 import urllib3
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
@@ -28,24 +27,9 @@ TABLE_NAMES = {
     "report": "ods_mz_tvm_admonitor_basic_show_api_di"
 }
 
-
-# ===================== 命令行参数解析 =====================
-def parse_args():
-    parser = argparse.ArgumentParser(description='秒针数据采集（日期范围+有效期校验）')
-    parser.add_argument('--start_date', type=str, required=True, help='开始日期（yyyyMMdd）')
-    parser.add_argument('--end_date', type=str, required=True, help='结束日期（yyyyMMdd）')
-    args = parser.parse_args()
-
-    # 日期格式&范围校验
-    try:
-        start_dt = datetime.strptime(args.start_date, "%Y%m%d")
-        end_dt = datetime.strptime(args.end_date, "%Y%m%d")
-        if start_dt > end_dt:
-            raise ValueError("开始日期不能晚于结束日期")
-    except ValueError as e:
-        raise ValueError(f"日期参数错误：{e}（格式要求yyyyMMdd）")
-
-    return args
+# 3. 固定日期范围（替代参数解析）
+start_date = '20260101'
+end_date = '20260316'  # 活动列表分区将使用此日期
 
 
 # ===================== 核心工具函数 =====================
@@ -158,7 +142,7 @@ def get_campaign_list(token: str) -> List[Dict]:
 
 
 def get_daily_report(token: str, campaign_id: str, report_date: str) -> Optional[Dict]:
-    """执行日报接口（所有字段转字符串）"""
+    """执行日报接口（仅返回指定字段，所有字段转字符串）"""
     try:
         resp = requests.get(
             f"{API_CONFIG['report_basic_url']}?access_token={token}",
@@ -169,6 +153,7 @@ def get_daily_report(token: str, campaign_id: str, report_date: str) -> Optional
         resp.raise_for_status()
         raw_data = resp.json()
 
+        # 仅返回指定的日报字段
         return {
             "campaign_id": to_string(campaign_id),
             "start_date": to_string(raw_data.get("start_date")),
@@ -186,6 +171,8 @@ def get_daily_report(token: str, campaign_id: str, report_date: str) -> Optional
             "universe": to_string(raw_data.get("universe")),
             "imp_acc": to_string(raw_data.get("imp_acc")),
             "clk_acc": to_string(raw_data.get("clk_acc")),
+            "uim_acc": to_string(raw_data.get("uim_acc")),
+            "ucl_acc": to_string(raw_data.get("ucl_acc")),
             "imp_day": to_string(raw_data.get("imp_day")),
             "clk_day": to_string(raw_data.get("clk_day")),
             "uim_day": to_string(raw_data.get("uim_day")),
@@ -199,8 +186,7 @@ def get_daily_report(token: str, campaign_id: str, report_date: str) -> Optional
             "clk_acc_h00": to_string(raw_data.get("clk_acc_h00")),
             "clk_acc_h23": to_string(raw_data.get("clk_acc_h23")),
             "pre_parse_raw_text": to_string(resp.text),
-            "etl_date": to_string(get_etl_time().split(" ")[0]),
-            "dt": to_string(date_convert(report_date, "8位"))
+            "etl_date": to_string(get_etl_time().split(" ")[0])
         }
     except Exception as e:
         print(f"⚠️ 活动{campaign_id} {report_date}日报采集失败：{str(e)}")
@@ -235,17 +221,14 @@ def write_to_odps(table_name: str, data: List[List], dt: str):
 # ===================== 主流程 =====================
 def main():
     try:
-        # 1. 解析参数
-        args = parse_args()
-        start_date = args.start_date
-        end_date = args.end_date
+        # 1. 打印固定日期范围
         print(f"===== 开始采集：{start_date} ~ {end_date} =====")
 
         # 2. 获取Token
         token = get_miaozhen_token()
         print(f"✅ Token获取成功")
 
-        # 3. 采集活动列表并写入
+        # 3. 采集活动列表并写入（分区使用end_date）
         campaign_data = get_campaign_list(token)
         campaign_write_data = [
             [
@@ -270,10 +253,11 @@ def main():
                 c["order_title"],
                 c["pre_parse_raw_text"],
                 c["etl_time"],
-                to_string(datetime.now().strftime("%Y%m%d"))
+                to_string(end_date)  # 活动列表分区字段固定为end_date
             ] for c in campaign_data
         ]
-        write_to_odps(TABLE_NAMES["campaign"], campaign_write_data, datetime.now().strftime("%Y%m%d"))
+        # 写入活动列表，分区参数传入end_date
+        write_to_odps(TABLE_NAMES["campaign"], campaign_write_data, end_date)
 
         # 4. 遍历日期+活动，采集日报
         report_data = []
@@ -284,6 +268,7 @@ def main():
                 if is_date_in_campaign(check_date, campaign["start_time"], campaign["end_time"]):
                     report = get_daily_report(token, camp_id, date_convert(check_date, "10位"))
                     if report:
+                        # 严格按指定字段顺序组装
                         report_write_row = [
                             report["campaign_id"],
                             report["start_date"],
@@ -301,6 +286,8 @@ def main():
                             report["universe"],
                             report["imp_acc"],
                             report["clk_acc"],
+                            report["uim_acc"],
+                            report["ucl_acc"],
                             report["imp_day"],
                             report["clk_day"],
                             report["uim_day"],
@@ -314,20 +301,23 @@ def main():
                             report["clk_acc_h00"],
                             report["clk_acc_h23"],
                             report["pre_parse_raw_text"],
-                            report["etl_date"],
-                            report["dt"]
+                            report["etl_date"]
                         ]
                         report_data.append(report_write_row)
                     time.sleep(API_CONFIG["request_interval"])
                 else:
                     print(f"⏩ 活动{camp_id} 不在有效期，跳过")
 
-        # 5. 写入日报数据
+        # 5. 写入日报数据（分区字段为日报日期，拼接在最后）
         if report_data:
             report_by_dt = {}
             for row in report_data:
-                dt = row[-1]
-                report_by_dt.setdefault(dt, []).append(row)
+                # 提取日报日期作为分区（从date字段转换为8位）
+                dt = date_convert(row[3], "8位")  # row[3]是date字段（yyyy-MM-dd）
+                # 分区字段拼接到行最后
+                row_with_dt = row + [dt]
+                report_by_dt.setdefault(dt, []).append(row_with_dt)
+
             for dt, rows in report_by_dt.items():
                 write_to_odps(TABLE_NAMES["report"], rows, dt)
 
