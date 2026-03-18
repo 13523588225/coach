@@ -134,3 +134,101 @@ CREATE TABLE IF NOT EXISTS ods_mz_tvm_admonitor_basic_show_api_di (
 COMMENT '秒针投放日报数据表（admonitor basic show接口）'
 PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd')
 ;
+
+
+CREATE TABLE IF NOT EXISTS dim_fiscal_date (
+    FSY_ID STRING COMMENT '主键ID',
+    FSY_CODE STRING COMMENT '财周编码（年份+周数，如20101代表2010年第1周）',
+    FSY_YEAR STRING COMMENT '财年',
+    FSY_HALF_YEAR STRING COMMENT '财半年（1：上半年，2：下半年）',
+    FSY_QUARTER STRING COMMENT '财季度（1-4）',
+    FSY_PERIOD STRING COMMENT '财期/月周期（1-12）',
+    FSY_WEEK STRING COMMENT '财周（1-53）',
+    FSY_FROM_DT STRING COMMENT '财周开始日期（格式：yyyy-MM-dd）',
+    FSY_TO_DT STRING COMMENT '财周结束日期（格式：yyyy-MM-dd）',
+    FSY_DT STRING COMMENT '财周内具体日期（格式：yyyy-MM-dd，扩展每一天）'
+)
+COMMENT '财周日历表-含日期明细版本'
+PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
+;
+
+
+CREATE TABLE IF NOT EXISTS ods_mz_adm_cms_campaigns_list_spots_api_df (
+    -- 核心标识字段
+    campaign_id           STRING COMMENT '活动ID（入参传递的campaign_id）',
+    CAGUID                STRING COMMENT '活动组唯一标识（接口返回空）',
+    GUID                  STRING COMMENT '全局唯一标识（接口返回空）',
+    -- 广告位基础属性
+    adposition_type       STRING COMMENT '广告位类型（如：Banner）',
+    area_size             STRING COMMENT '广告位尺寸（接口返回空）',
+    channel_name          STRING COMMENT '渠道名称（如：F18-30）',
+    customize             STRING COMMENT '自定义字段（接口返回空）',
+    description           STRING COMMENT '广告位描述（接口返回空）',
+    landing_page          STRING COMMENT '落地页地址（接口返回空）',
+    market                STRING COMMENT '投放市场（接口返回空）',
+    placement_name        STRING COMMENT '广告位名称（如：ALL_焦点图_shan KV）',
+    publisher_id          STRING COMMENT '媒体ID（如：1）',
+    publisher_name        STRING COMMENT '媒体名称（如：哔哩哔哩）',
+    report_metrics        STRING COMMENT '报表指标（接口返回空）',
+    spot_id               STRING COMMENT '广告位ID（如：133409879）',
+    spot_id_str           STRING COMMENT '字符串格式广告位ID（如：91m0F）',
+    vending_model         STRING COMMENT '售卖模式（如：常规购买-常规投放）',
+    -- 数组/嵌套字段（序列化存储）
+    spot_plan             STRING COMMENT '广告位排期计划（JSON数组，接口返回空数组）',
+    tracking_tags         STRING COMMENT '监测标签（JSON数组，含曝光/点击链接）',
+    -- 原始数据&采集信息
+    pre_parse_raw_text    STRING COMMENT '接口原始响应文本（完整JSON）',
+    etl_date              STRING COMMENT '数据落地时间（yyyy-MM-dd HH:mm:ss）'
+)
+COMMENT '秒针活动广告位信息表（CMS campaigns list_spots接口）- 匹配campaign_id=2493188返回值'
+PARTITIONED BY (dt STRING COMMENT '分区字段（采集当日，格式：yyyyMMdd）')
+;
+
+CREATE TABLE IF NOT EXISTS ods_mz_adm_cms_show_spot_api_df (
+    publisher_id STRING COMMENT '发布商ID',
+    channel_name STRING COMMENT '渠道名称(如F18-30 人群包)',
+    publisher_name STRING COMMENT '发布商名称(如哔哩哔哩)',
+    spot_id STRING COMMENT '点位ID',
+    GUID STRING COMMENT 'GUID标识',
+    description STRING COMMENT '点位描述',
+    CAGUID STRING COMMENT 'CAGUID标识',
+    customize STRING COMMENT '自定义字段',
+    report_metrics STRING COMMENT '报表指标',
+    market STRING COMMENT '市场类型',
+    vending_model STRING COMMENT '售卖模式(如常规购买-常规投放)',
+    area_size STRING COMMENT '地域范围大小',
+    linked_siteid STRING COMMENT '关联站点ID',
+    placement_name STRING COMMENT '投放位置名称(如ALL_信息流_KOL3)',
+    spot_id_str STRING COMMENT '点位字符串ID(如91m0C)',
+    adposition_type STRING COMMENT '广告位置类型(如信息流)',
+    campaign_id STRING COMMENT '活动ID',
+    pre_parse_raw_text STRING COMMENT '接口原始返回数据(JSON)',
+    etl_time STRING COMMENT '数据采集时间(yyyy-MM-dd HH:mm:ss)'
+)
+COMMENT '秒针活动点位详情表'
+PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
+;
+
+CREATE TABLE IF NOT EXISTS ods_mz_adm_cms_list_targets_api_df (
+    panel_id STRING COMMENT '面板ID',
+    target_id STRING COMMENT '目标人群ID',
+    target_name STRING COMMENT '目标人群名称(如P18-30)',
+    campaign_id STRING COMMENT '活动ID',
+    pre_parse_raw_text STRING COMMENT '接口原始返回数据(JSON)',
+    etl_time STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
+)
+COMMENT '秒针活动目标人群表'
+PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
+;
+
+CREATE TABLE IF NOT EXISTS ods_mz_adm_cms_regions_list_api_df (
+    level STRING COMMENT '地区层级(如2)',
+    parent_id STRING COMMENT '父级地区ID',
+    region_id STRING COMMENT '地区ID',
+    region_name STRING COMMENT '地区名称(如Shijiazhuang)',
+    pre_parse_raw_text STRING COMMENT '接口原始返回数据(JSON)',
+    etl_time STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
+)
+COMMENT '秒针地区列表表'
+PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
+;
