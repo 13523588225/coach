@@ -5,7 +5,7 @@
 --********************************************************************--
 -- python 脚本名.py --start_date 20260310 --end_date 20260312
 
-CREATE TABLE IF NOT EXISTS ods_mz_adm_cms_campaigns_list_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_cms_campaigns_list_api_df (
     campaign_id        STRING COMMENT '活动ID',
     start_date         STRING COMMENT '活动开始日期',
     end_date           STRING COMMENT '活动结束日期',
@@ -28,7 +28,7 @@ COMMENT '秒针活动信息表（CMS campaigns list接口）'
 PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd');
 
 
-CREATE TABLE IF NOT EXISTS ods_mz_adm_admonitor_basic_show_api_di (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_admonitor_basic_show_api_di (
     campaign_id          STRING COMMENT '活动ID',
     start_date           STRING COMMENT '活动开始日期',
     end_date             STRING COMMENT '活动结束日期',
@@ -67,7 +67,7 @@ PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd');
 
 
 -- 创建秒针活动列表分区表
-CREATE TABLE IF NOT EXISTS ods_mz_tvm_cms_campaigns_list_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_cms_campaigns_list_api_df (
     campaign_id BIGINT COMMENT '活动ID（主键）',
     start_time STRING COMMENT '活动开始时间（yyyy-MM-dd）',
     end_time STRING COMMENT '活动结束时间（yyyy-MM-dd）',
@@ -97,7 +97,7 @@ PARTITIONED BY (
 ;
 
 
-CREATE TABLE IF NOT EXISTS ods_mz_tvm_admonitor_basic_show_api_di (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_admonitor_basic_show_api_di (
     campaign_id          STRING COMMENT '活动ID',
     start_date           STRING COMMENT '活动开始日期',
     end_date             STRING COMMENT '活动结束日期',
@@ -136,7 +136,7 @@ PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd')
 ;
 
 
-CREATE TABLE IF NOT EXISTS dim_fiscal_date (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.dim_fiscal_date (
     FSY_ID STRING COMMENT '主键ID',
     FSY_CODE STRING COMMENT '财周编码（年份+周数，如20101代表2010年第1周）',
     FSY_YEAR STRING COMMENT '财年',
@@ -153,7 +153,7 @@ PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
 ;
 
 
-CREATE TABLE IF NOT EXISTS ods_mz_adm_cms_campaigns_list_spots_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_cms_campaigns_list_spots_api_df (
     -- 核心标识字段
     campaign_id           STRING COMMENT '活动ID（入参传递的campaign_id）',
     CAGUID                STRING COMMENT '活动组唯一标识（接口返回空）',
@@ -184,7 +184,7 @@ COMMENT '秒针活动广告位信息表（CMS campaigns list_spots接口）- 匹
 PARTITIONED BY (dt STRING COMMENT '分区字段（采集当日，格式：yyyyMMdd）')
 ;
 
-CREATE TABLE IF NOT EXISTS ods_mz_adm_cms_show_spot_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_cms_show_spot_api_df (
     publisher_id STRING COMMENT '发布商ID',
     channel_name STRING COMMENT '渠道名称(如F18-30 人群包)',
     publisher_name STRING COMMENT '发布商名称(如哔哩哔哩)',
@@ -209,7 +209,7 @@ COMMENT '秒针活动点位详情表'
 PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
 ;
 
-CREATE TABLE IF NOT EXISTS ods_mz_adm_cms_list_targets_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_cms_list_targets_api_df (
     panel_id STRING COMMENT '面板ID',
     target_id STRING COMMENT '目标人群ID',
     target_name STRING COMMENT '目标人群名称(如P18-30)',
@@ -221,7 +221,7 @@ COMMENT '秒针活动目标人群表'
 PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
 ;
 
-CREATE TABLE IF NOT EXISTS ods_mz_adm_cms_regions_list_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_cms_regions_list_api_df (
     level STRING COMMENT '地区层级(如2)',
     parent_id STRING COMMENT '父级地区ID',
     region_id STRING COMMENT '地区ID',
