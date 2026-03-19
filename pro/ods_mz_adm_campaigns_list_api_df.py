@@ -24,7 +24,7 @@ CONFIG = {
         "timeout": 30,
         "interval": 0.1  # 接口间隔（避免限流）
     },
-    "table_name": "ods_mz_adm_basic_show_api_di",
+    "table_name": "ods_mz_adm_campaigns_list_api_df",
     "batch_size": 1000
 }
 # 全局ODPS项目变量（适配通用写入函数）
