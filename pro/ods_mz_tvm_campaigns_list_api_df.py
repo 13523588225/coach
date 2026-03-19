@@ -1,15 +1,8 @@
-'''PyODPS 3
-请确保不要使用从 MaxCompute下载数据来处理。下载数据操作常包括Table/Instance的open_reader以及 DataFrame的to_pandas方法。
-推荐使用 MaxFrame DataFrame（从 MaxCompute 表创建）来处理数据，MaxFrame DataFrame数据计算发生在MaxCompute集群，无需拉数据至本地。
-MaxFrame相关介绍及使用可参考：https://help.aliyun.com/zh/maxcompute/user-guide/maxframe
-'''
-# -*- coding: utf-8 -*-
-import requests
 import json
-import time
+from datetime import datetime
+from typing import Dict, List
+import requests
 import urllib3
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
 from odps import ODPS
 
 # ===================== 基础配置 =====================
@@ -27,14 +20,11 @@ API_CONFIG = {
 # 2. ODPS配置（DataWorks自动鉴权）
 ODPS_PROJECT = ODPS().project
 TABLE_NAMES = {
-    "campaign": "ods_mz_tvm_cms_campaigns_list_api_df"
+    "campaign": "ods_mz_tvm_campaigns_list_api_df"
 }
 
-# 3. 活动列表分区将使用此日期
-end_date = args['start_date']
-
 # ===================== 核心工具函数 =====================
-def get_etl_time() -> str:
+def get_etl_datetime() -> str:
     """获取当前时间戳（yyyy-MM-dd HH:mm:ss）"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -103,7 +93,7 @@ def get_campaign_list(token: str) -> List[Dict]:
         resp.raise_for_status()
         campaigns = resp.json().get("result", {}).get("campaigns", [])
 
-        etl_time = get_etl_time()
+        etl_datetime = get_etl_datetime()
         return [{
             "campaign_id": to_string(c.get("campaign_id")),
             "start_time": to_string(c.get("start_time")),
@@ -125,7 +115,7 @@ def get_campaign_list(token: str) -> List[Dict]:
             "target_list": to_string(c.get("target_list")),
             "order_title": to_string(c.get("order_title")),
             "pre_parse_raw_text": to_string(json.dumps(c, ensure_ascii=False)),
-            "etl_time": to_string(etl_time)
+            "etl_datetime": to_string(etl_datetime)
         } for c in campaigns if isinstance(c, dict)]
     except Exception as e:
         raise Exception(f"采集活动列表失败：{str(e)}")
@@ -160,13 +150,19 @@ def write_to_odps(table_name: str, data: List[List], dt: str):
 
 # ===================== 主流程 =====================
 def main():
+    """
+    脚本主执行流程：
+    1. 获取秒针Token
+    2. 采集活动列表数据
+    3. 格式化写入ODPS
+    """
     try:
 
-        # 2. 获取Token
+        # 1. 获取秒针Token
         token = get_miaozhen_token()
         print(f"✅ Token获取成功")
 
-        # 3. 采集活动列表并写入
+        # 2. 采集活动列表数据
         campaign_data = get_campaign_list(token)
         campaign_write_data = [
             [
@@ -190,12 +186,12 @@ def main():
                 c["target_list"],
                 c["order_title"],
                 c["pre_parse_raw_text"],
-                c["etl_time"],
-                to_string(end_date)  # 活动列表分区字段固定为end_date
+                c["etl_datetime"]
             ] for c in campaign_data
         ]
-        # 写入活动列表，分区参数传入end_date
-        write_to_odps(TABLE_NAMES["campaign"], campaign_write_data, end_date)
+        # 3. 格式化写入ODPS，分区参数传入dt
+        # write_to_odps(TABLE_NAMES["campaign"], campaign_write_data, args['dt'])
+        write_to_odps(TABLE_NAMES["campaign"], campaign_write_data, '20260318')
 
     except Exception as e:
         print(f"❌ 任务失败：{str(e)}")

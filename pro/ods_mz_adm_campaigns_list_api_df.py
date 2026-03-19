@@ -13,7 +13,6 @@ CONFIG = {
     "api": {
         "token_url": "https://api.cn.miaozhen.com/oauth/token",
         "campaign_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/list",
-        "list_spots_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/list_spots",
         "auth": {
             "grant_type": "password",
             "username": "Coach_api",
@@ -22,14 +21,13 @@ CONFIG = {
             "client_secret": "e65798fb-85d6-4c56-aa19-a2435e8fef18"
         },
         "timeout": 30,
-        "interval": 0.1,
-        "campaign_batch_size": 20  # 活动批量采集大小
+        "interval": 0.2
     },
-    "table_name": "ods_mz_adm_cms_campaigns_list_spots_api_df",
-    "batch_size": 1000
+    "table_name": "ods_mz_adm_campaigns_list_api_df",
+    "batch_size": 1000  # ODPS批量写入大小
 }
 
-# 自动获取ODPS项目名
+# 自动获取ODPS项目名（核心修改）
 try:
     ODPS_PROJECT = ODPS().project
     if not ODPS_PROJECT:
@@ -41,16 +39,19 @@ except Exception as e:
 
 # ===================== 内置工具函数 =====================
 def safe_str(val):
+    """安全转换字符串，空值返回None"""
     if val is None or val == "" or val in ("null", "undefined"):
         return None
     return str(val)
 
 
-def get_etl_date():
+def get_etl_datetime():
+    """获取数据落地时间"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_miaozhen_token():
+    """获取秒针Token"""
     print("🔍 获取秒针Token...")
     try:
         resp = requests.post(
@@ -64,36 +65,18 @@ def get_miaozhen_token():
         token_data = resp.json()
         token = token_data.get("access_token")
         if not token:
-            raise Exception(f"Token为空：{json.dumps(token_data, ensure_ascii=False)}")
+            raise Exception(f"Token为空，响应：{json.dumps(token_data, ensure_ascii=False)}")
         print("✅ Token获取成功")
         return token
     except Exception as e:
         raise Exception(f"Token获取失败：{str(e)}")
 
 
-def get_campaign_ids(token):
-    """获取所有活动ID"""
-    print("🔍 获取活动ID列表...")
-    try:
-        resp = requests.get(
-            f"{CONFIG['api']['campaign_url']}?access_token={token}",
-            timeout=CONFIG["api"]["timeout"],
-            verify=False
-        )
-        resp.raise_for_status()
-        raw_data = resp.json()
-        campaigns = raw_data.get("result", {}).get("campaigns", raw_data)
-        campaign_ids = [camp.get("campaign_id") for camp in campaigns
-                        if isinstance(camp, dict) and camp.get("campaign_id")]
-        print(f"✅ 获取到{len(campaign_ids)}个活动ID")
-        return campaign_ids
-    except Exception as e:
-        raise Exception(f"活动ID获取失败：{str(e)}")
-
-
 def init_odps_client():
+    """初始化ODPS客户端（使用自动获取的项目名）"""
     try:
         odps = ODPS(project=ODPS_PROJECT)
+        # 性能优化配置
         options.tunnel.use_instance_tunnel = True
         options.read_timeout = 300
         options.connect_timeout = 60
@@ -105,6 +88,7 @@ def init_odps_client():
 
 
 def write_odps_data(odps, data, partition_dt):
+    """ODPS批量写入（性能优化）"""
     if not data:
         print(f"⚠️ 表{CONFIG['table_name']}无数据可写入")
         return
@@ -116,10 +100,12 @@ def write_odps_data(odps, data, partition_dt):
         table = odps.get_table(CONFIG["table_name"])
         partition_spec = f"dt='{partition_dt}'"
 
+        # 清空分区
         if table.exist_partition(partition_spec):
             odps.execute_sql(f"ALTER TABLE {CONFIG['table_name']} DROP PARTITION ({partition_spec})")
             print(f"✅ 清空分区：{partition_spec}")
 
+        # 分批写入
         with table.open_writer(partition=partition_spec, create_partition=True) as writer:
             for i in range(0, len(data), CONFIG["batch_size"]):
                 batch_data = data[i:i + CONFIG["batch_size"]]
@@ -132,52 +118,47 @@ def write_odps_data(odps, data, partition_dt):
 
 
 # ===================== 核心业务逻辑 =====================
-def collect_spot_data(token, campaign_id):
-    """采集单个活动广告位"""
+def collect_campaign_data(token):
+    """采集活动列表数据"""
+    print("🔍 采集活动列表...")
     try:
-        params = {"access_token": token, "campaign_id": campaign_id}
         resp = requests.get(
-            CONFIG["api"]["list_spots_url"],
-            params=params,
+            f"{CONFIG['api']['campaign_url']}?access_token={token}",
             timeout=CONFIG["api"]["timeout"],
             verify=False
         )
         resp.raise_for_status()
         pre_parse_raw_text = resp.text
         raw_data = resp.json()
+        campaigns = raw_data.get("result", {}).get("campaigns", raw_data)
 
-        spots = raw_data.get("result", {}).get("spots", [])
-        valid_spots = []
-        for spot in spots:
-            if isinstance(spot, dict) and spot.get("spot_id"):
-                spot["campaign_id"] = campaign_id
-                spot["pre_parse_raw_text"] = pre_parse_raw_text
-                valid_spots.append(spot)
+        valid_camps = []
+        for camp in campaigns:
+            if isinstance(camp, dict) and camp.get("campaign_id"):
+                camp["pre_parse_raw_text"] = pre_parse_raw_text
+                valid_camps.append(camp)
 
-        print(f"  ✅ 活动{campaign_id}采集到{len(valid_spots)}个广告位")
-        return valid_spots
+        print(f"✅ 采集到{len(valid_camps)}个有效活动")
+        return valid_camps
     except Exception as e:
-        print(f"  ❌ 活动{campaign_id}广告位采集失败：{str(e)}")
-        return []
+        raise Exception(f"活动采集失败：{str(e)}")
 
 
-def assemble_spot_data(all_spots):
-    """组装广告位数据"""
-    etl_date = get_etl_date()
+def assemble_campaign_data(campaigns):
+    """组装活动表数据（字段映射优化）"""
+    etl_datetime = get_etl_datetime()
     data = []
+    # 字段映射（便于维护）
     field_mapping = [
-        "campaign_id", "CAGUID", "GUID", "adposition_type", "area_size",
-        "channel_name", "customize", "description", "landing_page", "market",
-        "placement_name", "publisher_id", "publisher_name", "report_metrics",
-        "spot_id", "spot_id_str", "vending_model"
+        "campaign_id", "start_date", "end_date", "advertiser_name",
+        "agency_name", "brand_name", "calculation_type", "campaign_name",
+        "campaign_type", "creator_name", "description", "linked_iplib",
+        "linked_panels", "linked_siteids", "slot_type", "pre_parse_raw_text"
     ]
 
-    for spot in all_spots:
-        row = [safe_str(spot.get(field)) for field in field_mapping]
-        row.append(json.dumps(spot.get("spot_plan", []), ensure_ascii=False))
-        row.append(json.dumps(spot.get("tracking_tags", []), ensure_ascii=False))
-        row.append(safe_str(spot.get("pre_parse_raw_text")))
-        row.append(etl_date)
+    for camp in campaigns:
+        row = [safe_str(camp.get(field)) for field in field_mapping]
+        row.append(etl_datetime)
         data.append(row)
     return data
 
@@ -185,7 +166,7 @@ def assemble_spot_data(all_spots):
 # ===================== 主流程 =====================
 def main():
     print("=" * 80)
-    print("🚀 秒针广告位表采集任务启动")
+    print("🚀 秒针活动表采集任务启动")
     print("=" * 80)
 
     try:
@@ -193,27 +174,16 @@ def main():
         odps = init_odps_client()
         token = get_miaozhen_token()
 
-        # 获取活动ID
-        campaign_ids = get_campaign_ids(token)
+        # 采集+组装
+        campaigns = collect_campaign_data(token)
+        data = assemble_campaign_data(campaigns)
 
-        # 批量采集广告位
-        all_spots = []
-        for i in range(0, len(campaign_ids), CONFIG["api"]["campaign_batch_size"]):
-            batch_ids = campaign_ids[i:i + CONFIG["api"]["campaign_batch_size"]]
-            print(f"\n🔹 采集批次{i // CONFIG['api']['campaign_batch_size'] + 1} | 活动数：{len(batch_ids)}")
-            for camp_id in batch_ids:
-                spots = collect_spot_data(token, camp_id)
-                all_spots.extend(spots)
-                time.sleep(CONFIG["api"]["interval"])
-
-        # 组装+写入
-        data = assemble_spot_data(all_spots)
+        # 写入ODPS
         partition_dt = datetime.now().strftime("%Y%m%d")
         write_odps_data(odps, data, partition_dt)
 
         print("\n" + "=" * 80)
-        print("✅ 广告位表采集任务完成！")
-        print(f"📊 累计采集广告位：{len(all_spots)}条")
+        print("✅ 活动表采集任务完成！")
         print("=" * 80)
     except Exception as e:
         print(f"\n❌ 任务失败：{str(e)}")
