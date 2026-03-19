@@ -114,32 +114,35 @@ def get_campaign_list(token: str) -> List[Dict]:
         campaigns = resp.json().get("result", {}).get("campaigns", [])
 
         etl_time = get_etl_time()
-        campaign_list = []
-        for c in campaigns:
-            if not isinstance(c, dict):
-                continue
-            campaign_info = {
-                "campaign_id": to_string(c.get("campaign_id")),
-                "start_time": to_string(c.get("start_time")),  # 活动开始时间
-                "end_time": to_string(c.get("end_time")),  # 活动结束时间
-                "campaign_name": to_string(c.get("campaign_name")),
-                "pre_parse_raw_text": to_string(json.dumps(c, ensure_ascii=False)),
-                "etl_time": to_string(etl_time)
-            }
-            campaign_list.append(campaign_info)
-        return campaign_list
+        return [{
+            "campaign_id": to_string(c.get("campaign_id")),
+            "start_time": to_string(c.get("start_time")),
+            "end_time": to_string(c.get("end_time")),
+            "order_id": to_string(c.get("order_id")),
+            "scheduling": to_string(c.get("scheduling")),
+            "campaign_name": to_string(c.get("campaign_name")),
+            "description": to_string(c.get("description")),
+            "created_time": to_string(c.get("created_time")),
+            "advertiser": to_string(c.get("advertiser")),
+            "agency": to_string(c.get("agency")),
+            "brand": to_string(c.get("brand")),
+            "status": to_string(c.get("status")),
+            "verify_version": to_string(c.get("verify_version")),
+            "total_net_id": to_string(c.get("total_net_id")),
+            "calculate_type": to_string(c.get("calculate_type")),
+            "totalnet_version": to_string(c.get("totalnet_version")),
+            "sivt_region": to_string(c.get("sivt_region")),
+            "target_list": to_string(c.get("target_list")),
+            "order_title": to_string(c.get("order_title")),
+            "pre_parse_raw_text": to_string(json.dumps(c, ensure_ascii=False)),
+            "etl_time": to_string(etl_time)
+        } for c in campaigns if isinstance(c, dict)]
     except Exception as e:
         raise Exception(f"采集活动列表失败：{str(e)}")
 
 
-def get_daily_report(token: str, campaign_id: str, report_date: str, camp_start_time: str, camp_end_time: str) -> List[
-    Dict]:
-    """
-    执行日报接口（适配嵌套items结构，复用活动列表的起止时间）
-    :param camp_start_time: 活动列表中的start_time
-    :param camp_end_time: 活动列表中的end_time
-    :return: 每个item对应一条日报数据，仅保留有数据来源的字段
-    """
+def get_daily_report(token: str, campaign_id: str, report_date: str) -> Optional[Dict]:
+    """执行日报接口（仅返回指定字段，所有字段转字符串）"""
     try:
         resp = requests.get(
             f"{API_CONFIG['report_basic_url']}?access_token={token}",
@@ -150,43 +153,44 @@ def get_daily_report(token: str, campaign_id: str, report_date: str, camp_start_
         resp.raise_for_status()
         raw_data = resp.json()
 
-        # 校验接口返回是否成功
-        if raw_data.get("error_code") != 0:
-            print(f"⚠️ 活动{campaign_id} {report_date}日报接口返回错误：{raw_data.get('error_message')}")
-            return []
-
-        result = raw_data.get("result", {})
-        items = result.get("items", [])
-        report_list = []
-
-        # 遍历每个items元素，仅提取有数据来源的字段
-        for item in items:
-            attributes = item.get("attributes", {})
-            metrics = item.get("metrics", {})
-
-            report_data = {
-                # 核心字段（有数据来源）
-                "campaign_id": to_string(result.get("campaignId", campaign_id)),
-                "start_date": camp_start_time,  # 复用活动列表的start_time
-                "end_date": camp_end_time,  # 复用活动列表的end_time
-                "date": to_string(result.get("date", report_date)),
-                "version": to_string(result.get("version", "")),
-                "audience": to_string(attributes.get("audience", "")),
-                "region_id": to_string(attributes.get("region_id", "")),
-                "universe": to_string(attributes.get("universe", "")),
-                "imp_acc": to_string(metrics.get("imp_acc", "")),
-                "clk_acc": to_string(metrics.get("clk_acc", "")),
-                "uim_acc": to_string(metrics.get("uim_acc", "")),
-                "ucl_acc": to_string(metrics.get("ucl_acc", "")),
-                "pre_parse_raw_text": to_string(json.dumps(raw_data, ensure_ascii=False)),
-                "etl_date": to_string(get_etl_time())
-            }
-            report_list.append(report_data)
-
-        return report_list
+        # 仅返回指定的日报字段
+        return {
+            "campaign_id": to_string(campaign_id),
+            "start_date": to_string(raw_data.get("start_date")),
+            "end_date": to_string(raw_data.get("end_date")),
+            "date": to_string(report_date),
+            "version": to_string(raw_data.get("version")),
+            "platform": to_string(raw_data.get("platform")),
+            "total_spot_num": to_string(raw_data.get("total_spot_num")),
+            "audience": to_string(raw_data.get("audience")),
+            "target_id": to_string(raw_data.get("target_id")),
+            "publisher_id": to_string(raw_data.get("publisher_id")),
+            "spot_id": to_string(raw_data.get("spot_id")),
+            "keyword_id": to_string(raw_data.get("keyword_id")),
+            "region_id": to_string(raw_data.get("region_id")),
+            "universe": to_string(raw_data.get("universe")),
+            "imp_acc": to_string(raw_data.get("imp_acc")),
+            "clk_acc": to_string(raw_data.get("clk_acc")),
+            "uim_acc": to_string(raw_data.get("uim_acc")),
+            "ucl_acc": to_string(raw_data.get("ucl_acc")),
+            "imp_day": to_string(raw_data.get("imp_day")),
+            "clk_day": to_string(raw_data.get("clk_day")),
+            "uim_day": to_string(raw_data.get("uim_day")),
+            "ucl_day": to_string(raw_data.get("ucl_day")),
+            "imp_avg_day": to_string(raw_data.get("imp_avg_day")),
+            "clk_avg_day": to_string(raw_data.get("clk_avg_day")),
+            "uim_avg_day": to_string(raw_data.get("uim_avg_day")),
+            "ucl_avg_day": to_string(raw_data.get("ucl_avg_day")),
+            "imp_acc_h00": to_string(raw_data.get("imp_acc_h00")),
+            "imp_acc_h23": to_string(raw_data.get("imp_acc_h23")),
+            "clk_acc_h00": to_string(raw_data.get("clk_acc_h00")),
+            "clk_acc_h23": to_string(raw_data.get("clk_acc_h23")),
+            "pre_parse_raw_text": to_string(resp.text),
+            "etl_date": to_string(get_etl_time().split(" ")[0])
+        }
     except Exception as e:
         print(f"⚠️ 活动{campaign_id} {report_date}日报采集失败：{str(e)}")
-        return []
+        return None
 
 
 # ===================== ODPS写入 =====================
@@ -226,47 +230,76 @@ def main():
 
         # 3. 采集活动列表并写入（分区使用end_date）
         campaign_data = get_campaign_list(token)
-        # 活动列表仅保留核心字段（有数据来源）
         campaign_write_data = [
             [
                 c["campaign_id"],
                 c["start_time"],
                 c["end_time"],
+                c["order_id"],
+                c["scheduling"],
                 c["campaign_name"],
+                c["description"],
+                c["created_time"],
+                c["advertiser"],
+                c["agency"],
+                c["brand"],
+                c["status"],
+                c["verify_version"],
+                c["total_net_id"],
+                c["calculate_type"],
+                c["totalnet_version"],
+                c["sivt_region"],
+                c["target_list"],
+                c["order_title"],
                 c["pre_parse_raw_text"],
                 c["etl_time"],
                 to_string(end_date)  # 活动列表分区字段固定为end_date
             ] for c in campaign_data
         ]
+        # 写入活动列表，分区参数传入end_date
         write_to_odps(TABLE_NAMES["campaign"], campaign_write_data, end_date)
 
-        # 4. 遍历日期+活动，采集日报（复用活动起止时间，清理无数据字段）
+        # 4. 遍历日期+活动，采集日报
         report_data = []
         for check_date in get_date_range(start_date, end_date):
             print(f"\n📅 处理日期：{check_date}")
             for campaign in campaign_data:
                 camp_id = campaign["campaign_id"]
-                camp_start = campaign["start_time"]
-                camp_end = campaign["end_time"]
-
-                if is_date_in_campaign(check_date, camp_start, camp_end):
-                    # 传入活动列表的起止时间，用于填充日报的start_date/end_date
-                    reports = get_daily_report(token, camp_id, date_convert(check_date, "10位"), camp_start, camp_end)
-                    for report in reports:
-                        # 仅保留有数据来源的字段，按顺序组装
+                if is_date_in_campaign(check_date, campaign["start_time"], campaign["end_time"]):
+                    report = get_daily_report(token, camp_id, date_convert(check_date, "10位"))
+                    if report:
+                        # 严格按指定字段顺序组装
                         report_write_row = [
                             report["campaign_id"],
-                            report["start_date"],  # 活动列表的start_time
-                            report["end_date"],  # 活动列表的end_time
+                            report["start_date"],
+                            report["end_date"],
                             report["date"],
                             report["version"],
+                            report["platform"],
+                            report["total_spot_num"],
                             report["audience"],
+                            report["target_id"],
+                            report["publisher_id"],
+                            report["spot_id"],
+                            report["keyword_id"],
                             report["region_id"],
                             report["universe"],
                             report["imp_acc"],
                             report["clk_acc"],
                             report["uim_acc"],
                             report["ucl_acc"],
+                            report["imp_day"],
+                            report["clk_day"],
+                            report["uim_day"],
+                            report["ucl_day"],
+                            report["imp_avg_day"],
+                            report["clk_avg_day"],
+                            report["uim_avg_day"],
+                            report["ucl_avg_day"],
+                            report["imp_acc_h00"],
+                            report["imp_acc_h23"],
+                            report["clk_acc_h00"],
+                            report["clk_acc_h23"],
                             report["pre_parse_raw_text"],
                             report["etl_date"]
                         ]
