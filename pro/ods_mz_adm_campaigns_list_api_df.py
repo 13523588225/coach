@@ -1,38 +1,40 @@
 # -*- coding: utf-8 -*-
 import requests
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import urllib3
 from odps import ODPS, options
 
 # 禁用SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 配置项
-CONFIG = {
-    "api": {
-        "token_url": "https://api.cn.miaozhen.com/oauth/token",
-        "campaign_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/list",
-        "auth": {
-            "grant_type": "password",
-            "username": "Coach_api",
-            "password": "Coachapi2026",
-            "client_id": "COACH2026_API",
-            "client_secret": "e65798fb-85d6-4c56-aa19-a2435e8fef18"
-        },
-        "timeout": 30,
-    },
-    "table_name": "ods_mz_adm_campaigns_list_api_df",
-}
+# ====================== 核心配置 ======================
+# 1. 接口配置（按你的要求）
+TOKEN_URL = "https://api.cn.miaozhen.com/oauth/token?grant_type=password&username=Coach_api&password=Coachapi2026&client_id=COACH2026_API&client_secret=e65798fb-85d6-4c56-aa19-a2435e8fef18"
+CAMPAIGN_BASE_URL = "https://api.cn.miaozhen.com/cms/v1/campaigns/list"
+
+# 2. MaxCompute配置（自动获取项目名，无需手动改）
+ODPS_TABLE_NAME = "ods_mz_adm_campaigns_list_api_df"  # 你的目标表名
+BATCH_SIZE = 1000  # 批量写入大小
 
 
-# ====================== 核心工具函数 ======================
+# 3. 时间配置
+def get_default_dates():
+    """默认时间范围：近30天（YYYY-MM-DD）"""
+    today = datetime.now()
+    end = today.strftime("%Y-%m-%d")
+    start = (today - timedelta(days=30)).strftime("%Y-%m-%d")
+    return start, end
+
+
+def get_partition_date():
+    """分区日期：当天（YYYYMMDD）"""
+    return datetime.now().strftime("%Y%m%d")
+
+
+# ====================== 工具函数 ======================
 def safe_str(val):
-    """
-    安全转换字符串：
-    1. 空值/Null转为空字符串
-    2. 数组/字典序列化为JSON字符串（适配linked_panels/linked_siteids）
-    """
+    """空值/数组/字典安全转换为字符串（适配MaxCompute）"""
     if val is None or val == "" or str(val).lower() == "null":
         return ""
     if isinstance(val, (list, dict)):
@@ -40,71 +42,72 @@ def safe_str(val):
     return str(val)
 
 
-def get_etl_datetime():
-    """获取数据落地时间（格式：YYYY-MM-DD HH:MM:SS）"""
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-# ====================== 获取秒针Access Token ======================
-def get_miaozhen_token():
-    """获取秒针接口Token（标准Bearer方式）"""
+def init_odps_client():
+    """初始化MaxCompute客户端（自动获取项目名）"""
     try:
-        resp = requests.post(
-            CONFIG["api"]["token_url"],
-            data=CONFIG["api"]["auth"],
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            verify=False,
-            timeout=CONFIG["api"]["timeout"]
-        )
-        resp.raise_for_status()  # 触发HTTP错误（如401/500）
-        token_data = resp.json()
-        token = token_data["access_token"]  # 直接取值（Token必返，无则抛错）
-        print("✅ Token获取成功")
-        return token
+        odps = ODPS()
+        options.tunnel.use_instance_tunnel = True  # 性能优化
+        options.read_timeout = 300
+        print(f"✅ MaxCompute初始化成功 | 项目：{odps.project}")
+        return odps
     except Exception as e:
-        raise Exception(f"Token获取失败：{str(e)}")
+        raise Exception(f"MaxCompute初始化失败：{str(e)}")
 
 
-# ====================== 采集活动列表数据（适配数组返回格式） ======================
-def collect_campaign_data(token):
-    """采集活动列表（接口返回数组，无任何dict.get()调用）"""
+# ====================== 步骤1：获取access_token ======================
+def get_access_token():
+    """POST请求获取Token（参数拼URL）"""
+    print("🔍 开始获取access_token...")
     try:
-        # Token放在请求头（秒针官方标准方式）
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        resp = requests.get(
-            CONFIG["api"]["campaign_url"],
-            headers=headers,
-            verify=False,
-            timeout=CONFIG["api"]["timeout"]
-        )
+        resp = requests.post(TOKEN_URL, verify=False, timeout=30)
         resp.raise_for_status()
+        token_data = resp.json()
+        access_token = token_data["access_token"]
+        print(f"✅ Token获取成功：{access_token[:20]}...")
+        return access_token
+    except Exception as e:
+        raise Exception(f"Token获取失败：{str(e)} | 响应：{resp.text[:500]}")
 
-        # 接口返回数组，直接遍历（核心修复：无.get()）
+
+# ====================== 步骤2：采集活动数据 ======================
+def collect_campaign_data(access_token):
+    """GET请求采集活动数据（access_token拼URL）"""
+    start_date, end_date = get_default_dates()
+    print(f"\n🔍 采集 {start_date} 至 {end_date} 的活动数据...")
+
+    # 构造完整请求URL（拼接Token+时间参数）
+    full_url = (
+        f"{CAMPAIGN_BASE_URL}?access_token={access_token}"
+        f"&start_date={start_date}&end_date={end_date}"
+    )
+    print(f"📝 请求URL：{full_url[:100]}...")
+
+    try:
+        resp = requests.get(full_url, verify=False, timeout=30)
+        resp.raise_for_status()
         raw_data = resp.json()
-        raw_text = resp.text  # 保存原始响应文本用于溯源
-        valid_campaigns = []
 
         # 过滤有效数据（必须是字典+含campaign_id）
+        valid_data = []
         for idx, item in enumerate(raw_data):
             if isinstance(item, dict) and item.get("campaign_id"):
-                item["pre_parse_raw_text"] = raw_text  # 追加原始文本
-                valid_campaigns.append(item)
+                # 补充原始响应文本和采集时间
+                item["pre_parse_raw_text"] = resp.text[:2000]  # 截断长文本
+                item["etl_datetime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                valid_data.append(item)
             else:
-                print(f"⚠️ 第{idx + 1}条数据无效（非字典/无campaign_id），跳过")
+                print(f"⚠️ 第{idx + 1}条数据无效，跳过")
 
-        print(f"✅ 采集完成 | 总返回{len(raw_data)}条 | 有效{len(valid_campaigns)}条")
-        return valid_campaigns
+        print(f"✅ 采集完成 | 总返回{len(raw_data)}条 | 有效{len(valid_data)}条")
+        return valid_data
     except Exception as e:
-        raise Exception(f"活动采集失败：{str(e)}")
+        raise Exception(f"数据采集失败：{str(e)} | 响应：{resp.text[:500]}")
 
 
-# ====================== 组装ODPS数据（严格匹配表字段顺序） ======================
+# ====================== 步骤3：组装MaxCompute写入数据 ======================
 def assemble_odps_data(campaigns):
-    """按指定表结构字段顺序组装数据"""
-    etl_time = get_etl_datetime()
-    odps_rows = []
-
-    # 严格对应表结构的字段顺序（核心：和建表语句一一对应）
+    """按表结构组装写入数据（严格匹配字段顺序）"""
+    # 字段顺序：和你的建表语句完全一致
     field_order = [
         "campaign_id",  # 1. 活动ID
         "start_date",  # 2. 开始日期
@@ -118,88 +121,81 @@ def assemble_odps_data(campaigns):
         "creator_name",  # 10. 创建人
         "description",  # 11. 活动描述
         "linked_iplib",  # 12. 关联IP库
-        "linked_panels",  # 13. 关联面板（数组转JSON）
-        "linked_siteids",  # 14. 关联站点ID（数组转JSON）
+        "linked_panels",  # 13. 关联面板
+        "linked_siteids",  # 14. 关联站点ID
         "slot_type",  # 15. 广告位类型
         "pre_parse_raw_text",  # 16. 源解析文本
         "etl_datetime"  # 17. 数据落地时间
     ]
 
+    odps_rows = []
     for camp in campaigns:
         # 按字段顺序取值，安全转换
-        row = [
-            safe_str(camp.get(field)) for field in field_order[:-1]  # 前16个字段
-        ]
-        row.append(etl_time)  # 最后追加落地时间
+        row = [safe_str(camp.get(field, "")) for field in field_order]
         odps_rows.append(row)
 
     return odps_rows
 
 
-# ====================== 写入ODPS表 ======================
-def write_to_odps(odps_rows):
-    """写入ODPS表（自动处理分区）"""
+# ====================== 步骤4：写入MaxCompute ======================
+def write_to_odps(odps, odps_rows):
+    """写入MaxCompute（含分区管理）"""
     if not odps_rows:
         print("⚠️ 无有效数据，跳过写入")
         return
 
-    try:
-        # 初始化ODPS客户端（自动获取项目名）
-        odps = ODPS()
-        project_name = odps.project
-        print(f"✅ ODPS初始化成功 | 项目：{project_name}")
+    partition_dt = get_partition_date()
+    partition_spec = f"dt='{partition_dt}'"
+    table = odps.get_table(ODPS_TABLE_NAME)
 
-        # 校验表是否存在
-        table_name = CONFIG["table_name"]
-        if not odps.exist_table(table_name):
-            raise Exception(f"表{table_name}不存在，请先执行建表语句")
+    # 清空当天分区（避免数据重复）
+    if table.exist_partition(partition_spec):
+        odps.execute_sql(f"ALTER TABLE {ODPS_TABLE_NAME} DROP PARTITION ({partition_spec})")
+        print(f"✅ 清空分区：{partition_spec}")
 
-        # 分区日期（当天）
-        partition_dt = '20260318'
-        partition_spec = f"dt='{partition_dt}'"
+    # 批量写入数据
+    total = len(odps_rows)
+    batches = (total + BATCH_SIZE - 1) // BATCH_SIZE
+    print(f"\n📤 写入MaxCompute | 总条数：{total} | 分{batches}批写入")
 
-        # 清空分区（避免数据重复）
-        table = odps.get_table(table_name)
-        if table.exist_partition(partition_spec):
-            odps.execute_sql(f"ALTER TABLE {table_name} DROP PARTITION ({partition_spec})")
-            print(f"✅ 清空分区：{partition_spec}")
+    with table.open_writer(partition=partition_spec, create_partition=True) as writer:
+        for i in range(batches):
+            start = i * BATCH_SIZE
+            end = min((i + 1) * BATCH_SIZE, total)
+            batch_data = odps_rows[start:end]
+            writer.write(batch_data)
+            print(f"   第{i + 1}批 | 写入{len(batch_data)}条")
 
-        # 写入数据
-        with table.open_writer(partition=partition_spec, create_partition=True) as writer:
-            writer.write(odps_rows)
-
-        print(f"✅ 数据写入完成 | 分区：{partition_dt} | 条数：{len(odps_rows)}")
-    except Exception as e:
-        raise Exception(f"ODPS写入失败：{str(e)}")
+    print(f"✅ 写入完成 | 分区：{partition_dt}")
 
 
 # ====================== 主流程 ======================
 def main():
     print("=" * 80)
-    print("🚀 秒针活动列表采集任务启动")
+    print("🚀 秒针活动数据采集 → MaxCompute存储")
     print("=" * 80)
     try:
-        # 1. 获取Token
-        token = get_miaozhen_token()
+        # 1. 初始化MaxCompute
+        odps = init_odps_client()
 
-        # 2. 采集活动数据
-        campaigns = collect_campaign_data(token)
-        if not campaigns:
-            print("⚠️ 无有效活动数据，任务终止")
-            return
+        # 2. 获取Token
+        access_token = get_access_token()
 
-        # 3. 组装ODPS数据（严格匹配字段顺序）
-        odps_rows = assemble_odps_data(campaigns)
+        # 3. 采集数据
+        campaign_data = collect_campaign_data(access_token)
 
-        # 4. 写入ODPS
-        write_to_odps(odps_rows)
+        # 4. 组装数据
+        odps_rows = assemble_odps_data(campaign_data)
+
+        # 5. 写入MaxCompute
+        write_to_odps(odps, odps_rows)
 
         print("\n" + "=" * 80)
-        print("✅ 任务执行完成！")
+        print("✅ 全流程执行完成！")
         print("=" * 80)
     except Exception as e:
         print(f"\n❌ 任务失败：{str(e)}")
-        raise  # 抛出异常，让DataWorks捕获失败
+        raise
 
 
 if __name__ == "__main__":
