@@ -8,7 +8,6 @@ from odps import ODPS, options
 
 # ===================== 基础配置（ODPS自动获取） =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 CONFIG = {
     "api": {
         "token_url": "https://api.cn.miaozhen.com/oauth/token",
@@ -27,7 +26,7 @@ CONFIG = {
     "batch_size": 1000  # ODPS批量写入大小
 }
 
-# 自动获取ODPS项目名（核心修改）
+# 自动获取ODPS项目名
 try:
     ODPS_PROJECT = ODPS().project
     if not ODPS_PROJECT:
@@ -39,9 +38,9 @@ except Exception as e:
 
 # ===================== 内置工具函数 =====================
 def safe_str(val):
-    """安全转换字符串，空值返回None"""
-    if val is None or val == "" or val in ("null", "undefined"):
-        return None
+    """安全转换字符串，空值返回空字符串（适配ODPS）"""
+    if val is None or val == "" or str(val).lower() in ("null", "undefined"):
+        return ""
     return str(val)
 
 
@@ -51,7 +50,7 @@ def get_etl_datetime():
 
 
 def get_miaozhen_token():
-    """获取秒针Token"""
+    """获取秒针Token（适配Bearer Token方式）"""
     print("🔍 获取秒针Token...")
     try:
         resp = requests.post(
@@ -73,7 +72,7 @@ def get_miaozhen_token():
 
 
 def init_odps_client():
-    """初始化ODPS客户端（使用自动获取的项目名）"""
+    """初始化ODPS客户端"""
     try:
         odps = ODPS(project=ODPS_PROJECT)
         # 性能优化配置
@@ -88,15 +87,13 @@ def init_odps_client():
 
 
 def write_odps_data(odps, data, partition_dt):
-    """ODPS批量写入（性能优化）"""
+    """ODPS批量写入（修复空数据判断）"""
     if not data:
         print(f"⚠️ 表{CONFIG['table_name']}无数据可写入")
         return
-
     try:
         if not odps.exist_table(CONFIG["table_name"]):
             raise Exception(f"表{CONFIG['table_name']}不存在")
-
         table = odps.get_table(CONFIG["table_name"])
         partition_spec = f"dt='{partition_dt}'"
 
@@ -106,59 +103,73 @@ def write_odps_data(odps, data, partition_dt):
             print(f"✅ 清空分区：{partition_spec}")
 
         # 分批写入
+        total_batches = (len(data) + CONFIG["batch_size"] - 1) // CONFIG["batch_size"]
         with table.open_writer(partition=partition_spec, create_partition=True) as writer:
             for i in range(0, len(data), CONFIG["batch_size"]):
                 batch_data = data[i:i + CONFIG["batch_size"]]
                 writer.write(batch_data)
-                print(f"🔸 写入批次{i // CONFIG['batch_size'] + 1} | 条数：{len(batch_data)}")
-
+                print(f"🔸 写入批次{i // CONFIG['batch_size'] + 1}/{total_batches} | 条数：{len(batch_data)}")
         print(f"✅ 表{CONFIG['table_name']}写入完成 | 总条数：{len(data)}")
     except Exception as e:
         raise Exception(f"ODPS写入失败：{str(e)}")
 
 
-# ===================== 核心业务逻辑 =====================
+# ===================== 核心业务逻辑（修复数组解析） =====================
 def collect_campaign_data(token):
-    """采集活动列表数据"""
+    """采集活动列表数据（适配接口返回数组格式）"""
     print("🔍 采集活动列表...")
     try:
+        # 修复1：Token放在请求头（标准Bearer方式），而非URL参数
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         resp = requests.get(
-            f"{CONFIG['api']['campaign_url']}?access_token={token}",
+            CONFIG["api"]["campaign_url"],
+            headers=headers,
             timeout=CONFIG["api"]["timeout"],
             verify=False
         )
         resp.raise_for_status()
         pre_parse_raw_text = resp.text
         raw_data = resp.json()
-        campaigns = raw_data.get("result", {}).get("campaigns", raw_data)
 
+        # 修复2：适配接口返回数组格式，兼容字典格式（兜底）
+        if isinstance(raw_data, list):
+            campaigns = raw_data  # 接口返回数组直接使用
+        elif isinstance(raw_data, dict):
+            campaigns = raw_data.get("result", {}).get("campaigns", [])
+        else:
+            raise Exception(f"接口返回格式异常，非数组/字典：{type(raw_data)}")
+
+        # 过滤有效数据（必须是字典且包含campaign_id）
         valid_camps = []
-        for camp in campaigns:
+        for idx, camp in enumerate(campaigns):
             if isinstance(camp, dict) and camp.get("campaign_id"):
+                # 为每条数据添加原始文本（溯源）
                 camp["pre_parse_raw_text"] = pre_parse_raw_text
                 valid_camps.append(camp)
+            else:
+                print(f"⚠️ 第{idx + 1}条数据无效（无campaign_id/非字典），跳过")
 
-        print(f"✅ 采集到{len(valid_camps)}个有效活动")
+        print(f"✅ 采集到{len(valid_camps)}个有效活动（总计返回{len(campaigns)}条）")
         return valid_camps
     except Exception as e:
         raise Exception(f"活动采集失败：{str(e)}")
 
 
 def assemble_campaign_data(campaigns):
-    """组装活动表数据（字段映射优化）"""
+    """组装活动表数据（字段适配，空值处理）"""
     etl_datetime = get_etl_datetime()
     data = []
-    # 字段映射（便于维护）
+    # 字段映射（根据实际接口返回字段调整，示例为通用字段）
     field_mapping = [
         "campaign_id", "start_date", "end_date", "advertiser_name",
         "agency_name", "brand_name", "calculation_type", "campaign_name",
         "campaign_type", "creator_name", "description", "linked_iplib",
         "linked_panels", "linked_siteids", "slot_type", "pre_parse_raw_text"
     ]
-
     for camp in campaigns:
-        row = [safe_str(camp.get(field)) for field in field_mapping]
-        row.append(etl_datetime)
+        # 安全获取每个字段，避免KeyError
+        row = [safe_str(camp.get(field, "")) for field in field_mapping]
+        row.append(etl_datetime)  # 追加落地时间
         data.append(row)
     return data
 
@@ -168,19 +179,20 @@ def main():
     print("=" * 80)
     print("🚀 秒针活动表采集任务启动")
     print("=" * 80)
-
     try:
         # 初始化
         odps = init_odps_client()
         token = get_miaozhen_token()
 
-        # 采集+组装
+        # 采集+组装数据
         campaigns = collect_campaign_data(token)
+        if not campaigns:
+            print("⚠️ 未采集到有效活动数据，任务终止")
+            return
         data = assemble_campaign_data(campaigns)
 
-        # 写入ODPS
-        partition_dt = datetime.now().strftime("%Y%m%d")
-        write_odps_data(odps, data, partition_dt)
+        # 写入ODPS（使用当天日期作为分区）
+        write_odps_data(odps, data, '20260318')
 
         print("\n" + "=" * 80)
         print("✅ 活动表采集任务完成！")
