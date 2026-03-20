@@ -1,11 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 秒针Campaign广告位详情采集脚本
-功能：采集数据并写入MaxCompute（ODPS）
-特性：
-1. 全局ODPS项目变量自动获取
-2. 写入前清空分区防重复
-3. 移除Table/Record依赖，纯数据格式写入
+功能：采集数据并调用通用ODPS写入函数写入数据
+核心：完全复用你提供的write_to_odps函数
 数据来源：/cms/v1/campaigns/show_spot 接口
 依赖：odps库（pip install odps）
 """
@@ -20,9 +17,8 @@ from odps import ODPS
 # ===================== 全局配置 & 初始化 =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 全局ODPS客户端和项目变量（核心）
-o = ODPS()  # 全局ODPS客户端实例
-ODPS_PROJECT = o.project  # 自动获取当前项目名
+# 全局ODPS项目变量（自动获取）
+ODPS_PROJECT = ODPS().project
 
 # 核心配置
 CONFIG = {
@@ -68,10 +64,34 @@ CONFIG = {
         "campaign_list_spots_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/list_spots",
         "campaign_show_spot_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/show_spot",
         "timeout": 30,
-        "interval": 0.02
+        "interval": 0.2
     },
     "batch_size": 100  # 批量写入大小
 }
+
+
+# ====================== 通用ODPS写入函数（完全复用你提供的版本） ======================
+def write_to_odps(table_name: str, data: List[List], dt: str):
+    """通用ODPS写入函数（清空分区+写入）"""
+    if not data:
+        print(f"⚠️ {table_name} 无数据可写入")
+        return
+
+    o = ODPS(project=ODPS_PROJECT)
+    if not o.exist_table(table_name):
+        raise Exception(f"表{table_name}不存在")
+
+    table = o.get_table(table_name)
+    partition_spec = f"dt='{dt}'"
+
+    # 清空分区（防重复）
+    if table.exist_partition(partition_spec):
+        o.execute_sql(f"ALTER TABLE {table_name} DROP PARTITION ({partition_spec})")
+        print(f"✅ 清空分区：{table_name}.{partition_spec}")
+
+    # 写入数据
+    with table.open_writer(partition=partition_spec, create_partition=True) as writer:
+        writer.write(data)
 
 
 # ===================== 核心工具函数 =====================
@@ -85,37 +105,11 @@ def get_partition_date() -> str:
     return datetime.now().strftime("%Y%m%d")
 
 
-def get_partition_spec() -> str:
-    """获取分区规格（dt=20260320）"""
-    return f"{CONFIG['odps']['partition_col']}={get_partition_date()}"
-
-
 def to_string(value) -> str:
     """强制转换为字符串，处理空值/None/-"""
     if value is None or value == "" or str(value).lower() == "null" or value == "-":
         return ""
     return str(value)
-
-
-def check_table_exists(table_name: str) -> bool:
-    """校验表是否存在（无Table依赖）"""
-    try:
-        # 直接通过客户端校验，不创建Table实例
-        return o.exist_table(table_name)
-    except Exception as e:
-        print(f"⚠️ 校验表 {table_name} 存在性失败：{str(e)}")
-        return False
-
-
-def check_partition_exists(table_name: str, partition_spec: str) -> bool:
-    """校验分区是否存在（无Table依赖）"""
-    try:
-        # 执行SQL查询分区是否存在
-        sql = f"SHOW PARTITIONS {table_name} PARTITION({partition_spec})"
-        result = o.execute_sql(sql).fetch_all()
-        return len(result) > 0
-    except Exception:
-        return False
 
 
 # ===================== Access Token获取 =====================
@@ -256,59 +250,28 @@ def get_spot_detail(token: str, campaign_id: str, spot_id_str: str) -> Optional[
         return None
 
 
-# ===================== 数据写入MaxCompute（无Table/Record依赖） =====================
-def write_data_to_odps(data_list: List[Dict]):
+# ===================== 数据转换（适配通用写入函数） =====================
+def convert_data_to_list(data_list: List[Dict]) -> List[List]:
     """
-    写入数据到MaxCompute（核心：无Table/Record依赖）
-    :param data_list: 待写入数据列表（字典格式）
+    将字典格式数据转换为列表格式（适配write_to_odps函数）
+    :param data_list: 字典格式的采集数据
+    :return: 列表格式的写入数据
     """
-    if not data_list:
-        print("⚠️ 无数据可写入MaxCompute")
-        return
-
-    table_name = CONFIG["odps"]["table_name"]
-    partition_spec = get_partition_spec()
-
-    # 1. 前置校验
-    if not check_table_exists(table_name):
-        raise Exception(f"❌ 表 {table_name} 在项目 {ODPS_PROJECT} 中不存在，无法写入")
-
-    # 2. 清空分区（防重复）
-    if check_partition_exists(table_name, partition_spec):
-        drop_sql = f"ALTER TABLE {table_name} DROP PARTITION ({partition_spec})"
-        o.execute_sql(drop_sql)
-        print(f"✅ 清空分区：{table_name}.{partition_spec}")
-
-    # 3. 转换数据为列表格式（按字段顺序）
     write_data = []
     for data in data_list:
         row = []
+        # 按表字段顺序组装数据（不含分区字段）
         for col in CONFIG["odps"]["table_columns"]:
             row.append(data.get(col, ""))
-        # 追加分区字段值
-        row.append(get_partition_date())
         write_data.append(row)
-
-    # 4. 写入数据（无Table/Record依赖）
-    try:
-        # 直接通过客户端打开writer，不创建Table实例
-        with o.open_table(
-                table_name,
-                partition=partition_spec,
-                create_partition=True,
-                write_mode="append"
-        ) as writer:
-            writer.write(write_data)
-        print(f"✅ 成功写入{len(write_data)}条数据到 {table_name}.{partition_spec}")
-    except Exception as e:
-        raise Exception(f"写入MaxCompute失败：{str(e)}")
+    return write_data
 
 
 # ===================== 主流程 =====================
 def main():
     try:
         print("=" * 80)
-        print("🚀 秒针广告位详情采集+ODPS写入任务启动")
+        print("🚀 秒针广告位详情采集+通用ODPS写入任务启动")
         print(f"🔧 全局ODPS项目：{ODPS_PROJECT}")
         print("=" * 80)
 
@@ -327,6 +290,9 @@ def main():
 
         # 4. 遍历采集数据
         all_spot_detail_data = []
+        target_table = CONFIG["odps"]["table_name"]
+        partition_dt = get_partition_date()
+
         for campaign_id in campaign_ids:
             # 获取spot_id_str列表
             spot_id_str_list = get_spot_id_str_list(token, campaign_id)
@@ -339,17 +305,23 @@ def main():
                 if spot_detail:
                     all_spot_detail_data.append(spot_detail)
 
-                    # 达到批量大小则写入
+                    # 达到批量大小则调用通用写入函数
                     if len(all_spot_detail_data) >= CONFIG["batch_size"]:
-                        write_data_to_odps(all_spot_detail_data)
+                        # 转换数据格式
+                        write_data = convert_data_to_list(all_spot_detail_data)
+                        # 调用通用写入函数
+                        write_to_odps(target_table, write_data, partition_dt)
+                        print(f"✅ 批量写入{len(write_data)}条数据完成")
                         all_spot_detail_data = []
 
         # 写入剩余数据
         if all_spot_detail_data:
-            write_data_to_odps(all_spot_detail_data)
+            write_data = convert_data_to_list(all_spot_detail_data)
+            write_to_odps(target_table, write_data, partition_dt)
+            print(f"✅ 剩余数据{len(write_data)}条写入完成")
 
         print("\n" + "=" * 80)
-        print(f"✅ 任务完成！数据已写入 {ODPS_PROJECT}.{CONFIG['odps']['table_name']}")
+        print(f"✅ 任务完成！数据已写入 {ODPS_PROJECT}.{target_table}（分区：dt='{partition_dt}'）")
         print("=" * 80)
 
     except Exception as e:
