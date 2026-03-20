@@ -18,7 +18,7 @@ CONFIG = {
     # MaxCompute配置（适配新表名）
     "odps": {
         "project": ODPS_PROJECT,
-        "table_name": "coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di",  # 新表名
+        "table_name": "ods_mz_adm_basic_show_api_di",  # 新表名
         "partition_col": "dt",  # 分区字段（yyyyMMdd）
         "batch_size": 1000  # 批量写入大小
     },
