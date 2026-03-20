@@ -18,7 +18,7 @@ CONFIG = {
     # MaxCompute配置（适配新表名）
     "odps": {
         "project": ODPS_PROJECT,
-        "table_name": "ods_mz_adm_basic_show_api_di",  # 新表名
+        "table_name": "coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di",  # 目标表名
         "partition_col": "dt",  # 分区字段（yyyyMMdd）
         "batch_size": 1000  # 批量写入大小
     },
@@ -47,8 +47,8 @@ CONFIG = {
 
 # ===================== 内置工具函数 =====================
 def safe_str(val):
-    """安全转换字符串，空值返回None"""
-    if val is None or val == "" or val in ("null", "undefined"):
+    """安全转换字符串，空值/特殊值返回None"""
+    if val is None or val == "" or val == "-" or val in ("null", "undefined"):
         return None
     return str(val)
 
@@ -238,12 +238,13 @@ def get_valid_campaigns(token):
 
 def collect_report_data(token, campaign_info, single_date, by_region):
     """
-    采集单活动+单日期+单地域维度的报表数据（适配新表所有字段）
+    采集单活动+单日期+单地域维度的报表数据（适配真实接口返回结构）
     :param campaign_info: 活动信息字典（含campaign_id/campaign_start_date/campaign_end_date）
     :param single_date: 报表采集日期（yyyy-MM-dd）
     :param by_region: 地域维度值
-    :return: 与新表字段一一对应的行数据
+    :return: 与新表字段一一对应的行数据列表（多条，对应items中的每个元素）
     """
+    rows = []  # 存储当前采集的所有行数据（items列表中的每个元素对应一行）
     try:
         campaign_id = campaign_info["campaign_id"]
         print(f"  🔍 采集活动{campaign_id} | 地域[{by_region}] | 日期[{single_date}]...")
@@ -266,69 +267,107 @@ def collect_report_data(token, campaign_info, single_date, by_region):
         resp.raise_for_status()
         parsed_data = resp.json()
 
-        # 解析秒针返回的指标数据
-        report_item = parsed_data.get("result", parsed_data)
-        report_item = report_item[0] if isinstance(report_item, list) and report_item else report_item
+        # 提取接口顶层字段
+        report_date = parsed_data.get("date")  # 报表日期
+        total_spot_num = parsed_data.get("total_spot_num")  # 总点位数量
+        version = parsed_data.get("version")  # 版本号
+        platform = parsed_data.get("platform")  # 平台类型
+        raw_text = resp.text  # 原始返回文本
 
-        # 组装单条数据（与新表字段完全一一对应）
-        row = [
-            # 1. 活动核心信息字段
-            safe_str(campaign_id),  # campaign_id
-            safe_str(campaign_info["campaign_start_date"]),  # campaign_start_date
-            safe_str(campaign_info["campaign_end_date"]),  # campaign_end_date
+        # 遍历items列表（每个item对应一行数据）
+        items = parsed_data.get("items", [])
+        if not items:
+            print(f"  ⚠️ 活动{campaign_id}日期[{single_date}]无items数据，跳过")
+            return rows
 
-            # 2. 报表采集日期字段
-            safe_str(single_date),  # report_day_date
+        for item in items:
+            # 提取attributes中的字段
+            attrs = item.get("attributes", {})
+            region_id = attrs.get("region_id")
+            publisher_id = attrs.get("publisher_id")
+            audience = attrs.get("audience")
+            spot_id = attrs.get("spot_id")
+            universe = attrs.get("universe")
 
-            # 3. 报表维度参数字段
-            safe_str(CONFIG["report_params"]["by_position"]),  # by_position（固定spot）
-            safe_str(by_region),  # by_region
-            safe_str(CONFIG["report_params"]["metrics"]),  # metrics（固定all）
+            # 提取metrics中的字段
+            metrics = item.get("metrics", {})
+            imp_acc = metrics.get("imp_acc")
+            clk_acc = metrics.get("clk_acc")
+            uim_acc = metrics.get("uim_acc")
+            ucl_acc = metrics.get("ucl_acc")
+            imp_day = metrics.get("imp_day")
+            clk_day = metrics.get("clk_day")
+            uim_day = metrics.get("uim_day")
+            ucl_day = metrics.get("ucl_day")
+            imp_avg_day = metrics.get("imp_avg_day")
+            clk_avg_day = metrics.get("clk_avg_day")
+            uim_avg_day = metrics.get("uim_avg_day")
+            ucl_avg_day = metrics.get("ucl_avg_day")
+            imp_acc_h00 = metrics.get("imp_h00")  # 累计曝光量（0点）
+            imp_acc_h23 = metrics.get("imp_h23")  # 累计曝光量（23点）
+            clk_acc_h00 = metrics.get("clk_h00")  # 累计点击量（0点）
+            clk_acc_h23 = metrics.get("clk_h23")  # 累计点击量（23点）
 
-            # 4. 秒针返回的核心指标字段
-            safe_str(report_item.get("version")),  # version
-            safe_str(report_item.get("platform")),  # platform
-            safe_str(report_item.get("total_spot_num")),  # total_spot_num
-            safe_str(report_item.get("audience")),  # audience
-            safe_str(report_item.get("target_id")),  # target_id
-            safe_str(report_item.get("publisher_id")),  # publisher_id
-            safe_str(report_item.get("spot_id")),  # spot_id
-            safe_str(report_item.get("keyword_id")),  # keyword_id
-            safe_str(report_item.get("region_id")),  # region_id
-            safe_str(report_item.get("universe")),  # universe
-            safe_str(report_item.get("imp_acc")),  # imp_acc
-            safe_str(report_item.get("clk_acc")),  # clk_acc
-            safe_str(report_item.get("uim_acc")),  # uim_acc
-            safe_str(report_item.get("ucl_acc")),  # ucl_acc
-            safe_str(report_item.get("imp_day")),  # imp_day
-            safe_str(report_item.get("clk_day")),  # clk_day
-            safe_str(report_item.get("uim_day")),  # uim_day
-            safe_str(report_item.get("ucl_day")),  # ucl_day
-            safe_str(report_item.get("imp_avg_day")),  # imp_avg_day
-            safe_str(report_item.get("clk_avg_day")),  # clk_avg_day
-            safe_str(report_item.get("uim_avg_day")),  # uim_avg_day
-            safe_str(report_item.get("ucl_avg_day")),  # ucl_avg_day
-            safe_str(report_item.get("imp_acc_h00")),  # imp_acc_h00
-            safe_str(report_item.get("imp_acc_h23")),  # imp_acc_h23
-            safe_str(report_item.get("clk_acc_h00")),  # clk_acc_h00
-            safe_str(report_item.get("clk_acc_h23")),  # clk_acc_h23
+            # 组装单条数据（与新表字段完全一一对应）
+            row = [
+                # 1. 活动核心信息字段
+                safe_str(campaign_id),  # campaign_id
+                safe_str(campaign_info["campaign_start_date"]),  # campaign_start_date
+                safe_str(campaign_info["campaign_end_date"]),  # campaign_end_date
 
-            # 5. 原始数据与采集元信息
-            safe_str(resp.text),  # pre_parse_raw_text
-            get_etl_datetime()  # etl_datetime
-        ]
+                # 2. 报表采集日期字段
+                safe_str(report_date),  # report_day_date
 
-        print(f"  ✅ 活动{campaign_id}日期[{single_date}]采集成功")
-        return row
+                # 3. 报表维度参数字段
+                safe_str(CONFIG["report_params"]["by_position"]),  # by_position（固定spot）
+                safe_str(by_region),  # by_region
+                safe_str(CONFIG["report_params"]["metrics"]),  # metrics（固定all）
+
+                # 4. 秒针返回的核心指标字段
+                safe_str(version),  # version
+                safe_str(platform),  # platform
+                safe_str(total_spot_num),  # total_spot_num
+                safe_str(audience),  # audience
+                None,  # target_id（接口无该字段，填None）
+                safe_str(publisher_id),  # publisher_id
+                safe_str(spot_id),  # spot_id
+                None,  # keyword_id（接口无该字段，填None）
+                safe_str(region_id),  # region_id
+                safe_str(universe),  # universe
+                safe_str(imp_acc),  # imp_acc
+                safe_str(clk_acc),  # clk_acc
+                safe_str(uim_acc),  # uim_acc
+                safe_str(ucl_acc),  # ucl_acc
+                safe_str(imp_day),  # imp_day
+                safe_str(clk_day),  # clk_day
+                safe_str(uim_day),  # uim_day
+                safe_str(ucl_day),  # ucl_day
+                safe_str(imp_avg_day),  # imp_avg_day
+                safe_str(clk_avg_day),  # clk_avg_day
+                safe_str(uim_avg_day),  # uim_avg_day
+                safe_str(ucl_avg_day),  # ucl_avg_day
+                safe_str(imp_acc_h00),  # imp_acc_h00
+                safe_str(imp_acc_h23),  # imp_acc_h23
+                safe_str(clk_acc_h00),  # clk_acc_h00
+                safe_str(clk_acc_h23),  # clk_acc_h23
+
+                # 5. 原始数据与采集元信息
+                safe_str(raw_text),  # pre_parse_raw_text
+                get_etl_datetime()  # etl_datetime
+            ]
+            rows.append(row)
+
+        print(f"  ✅ 活动{campaign_id}日期[{single_date}]采集成功 | 共{len(rows)}条数据")
+        return rows
     except Exception as e:
         print(f"  ❌ 活动{campaign_info['campaign_id']}日期[{single_date}]采集失败：{str(e)}")
-        return None
+        return rows
 
 
 # ===================== 主流程 =====================
 def main():
     print("=" * 80)
-    print("🚀 秒针日报表采集任务启动（写入MaxCompute + 适配新表结构）")
+    print("🚀 秒针日报表采集任务启动（写入MaxCompute + 适配真实接口结构）")
     print(f"📅 配置日期区间：{CONFIG['start_dt']} ~ {CONFIG['end_dt']}")
     print(f"🔧 ODPS项目：{ODPS_PROJECT}")
     print(f"🔧 目标表：{CONFIG['odps']['table_name']}")
@@ -381,16 +420,16 @@ def main():
             # 遍历地域维度 + 单日采集
             for by_region in CONFIG["report_params"]["by_region_list"]:
                 for single_date in single_dates:
-                    # 采集单条数据（传入完整活动信息）
-                    row = collect_report_data(token, camp, single_date, by_region)
-                    if not row:
+                    # 采集数据（返回多条行数据）
+                    item_rows = collect_report_data(token, camp, single_date, by_region)
+                    if not item_rows:
                         continue
 
                     # 按单日分区分组
                     partition_dt = get_partition_dt(single_date)
                     if partition_dt not in date_data_map:
                         date_data_map[partition_dt] = []
-                    date_data_map[partition_dt].append(row)
+                    date_data_map[partition_dt].extend(item_rows)  # 追加多条数据
 
                     time.sleep(CONFIG["api"]["interval"])  # 接口限流间隔
 
