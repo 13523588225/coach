@@ -25,8 +25,8 @@ CONFIG = {
         "interval": 0.1,
         "campaign_batch_size": 20  # 活动批量采集大小
     },
-    "table_name": "ods_mz_adm_list_spots_api_df",
-    "batch_size": 1000
+    "table_name": "ods_mz_adm_list_spots_api_df",  # MaxCompute目标表名
+    "batch_size": 1000  # ODPS批量写入大小
 }
 
 # 自动获取ODPS项目名
@@ -48,6 +48,11 @@ def safe_str(val):
 
 def get_etl_datetime():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_partition_dt():
+    """获取分区日期（yyyyMMdd）"""
+    return datetime.now().strftime("%Y%m%d")
 
 
 def get_miaozhen_token():
@@ -72,7 +77,7 @@ def get_miaozhen_token():
 
 
 def get_campaign_ids(token):
-    """获取所有活动ID"""
+    """正确解析纯数组格式的活动列表，提取campaign_id"""
     print("🔍 获取活动ID列表...")
     try:
         resp = requests.get(
@@ -82,29 +87,40 @@ def get_campaign_ids(token):
         )
         resp.raise_for_status()
         raw_data = resp.json()
-        campaigns = raw_data.get("result", {}).get("campaigns", raw_data)
-        campaign_ids = [camp.get("campaign_id") for camp in campaigns
-                        if isinstance(camp, dict) and camp.get("campaign_id")]
-        print(f"✅ 获取到{len(campaign_ids)}个活动ID")
+
+        if not isinstance(raw_data, list):
+            raise Exception(f"活动列表返回格式异常（非数组），原始数据：{json.dumps(raw_data, ensure_ascii=False)}")
+
+        campaign_ids = []
+        for idx, campaign in enumerate(raw_data):
+            if not isinstance(campaign, dict):
+                print(f"⚠️ 第{idx + 1}条活动数据非字典格式，跳过：{campaign}")
+                continue
+            camp_id = campaign.get("campaign_id")
+            if camp_id and str(camp_id).strip():
+                campaign_ids.append(str(camp_id).strip())
+            else:
+                print(f"⚠️ 第{idx + 1}条活动数据campaign_id为空，跳过")
+
+        campaign_ids = list(set(campaign_ids))
+        print(f"✅ 获取到{len(campaign_ids)}个有效活动ID：{campaign_ids}")
         return campaign_ids
     except Exception as e:
         raise Exception(f"活动ID获取失败：{str(e)}")
 
 
 def init_odps_client():
+    """初始化ODPS客户端"""
     try:
         odps = ODPS(project=ODPS_PROJECT)
-        options.tunnel.use_instance_tunnel = True
-        options.read_timeout = 300
-        options.connect_timeout = 60
-        options.tunnel.limit_instance_tunnel = False
-        print(f"✅ ODPS初始化成功 | 项目：{odps.project}")
+        print(f"✅ ODPS初始化成功 | 项目：{ODPS_PROJECT}")
         return odps
     except Exception as e:
         raise Exception(f"ODPS初始化失败：{str(e)}")
 
 
 def write_odps_data(odps, data, partition_dt):
+    """写入数据到MaxCompute（清空分区防重复）"""
     if not data:
         print(f"⚠️ 表{CONFIG['table_name']}无数据可写入")
         return
@@ -116,10 +132,12 @@ def write_odps_data(odps, data, partition_dt):
         table = odps.get_table(CONFIG["table_name"])
         partition_spec = f"dt='{partition_dt}'"
 
+        # 清空当日分区（防止重复数据）
         if table.exist_partition(partition_spec):
             odps.execute_sql(f"ALTER TABLE {CONFIG['table_name']} DROP PARTITION ({partition_spec})")
             print(f"✅ 清空分区：{partition_spec}")
 
+        # 批量写入数据
         with table.open_writer(partition=partition_spec, create_partition=True) as writer:
             for i in range(0, len(data), CONFIG["batch_size"]):
                 batch_data = data[i:i + CONFIG["batch_size"]]
@@ -133,7 +151,7 @@ def write_odps_data(odps, data, partition_dt):
 
 # ===================== 核心业务逻辑 =====================
 def collect_spot_data(token, campaign_id):
-    """采集单个活动广告位"""
+    """适配纯数组格式的广告位数据，正确解析"""
     try:
         params = {"access_token": token, "campaign_id": campaign_id}
         resp = requests.get(
@@ -146,15 +164,27 @@ def collect_spot_data(token, campaign_id):
         pre_parse_raw_text = resp.text
         raw_data = resp.json()
 
-        spots = raw_data.get("result", {}).get("spots", [])
-        valid_spots = []
-        for spot in spots:
-            if isinstance(spot, dict) and spot.get("spot_id"):
-                spot["campaign_id"] = campaign_id
-                spot["pre_parse_raw_text"] = pre_parse_raw_text
-                valid_spots.append(spot)
+        if not isinstance(raw_data, list):
+            print(
+                f"⚠️ 活动{campaign_id}广告位返回格式异常（非数组），原始数据：{json.dumps(raw_data, ensure_ascii=False)[:100]}...")
+            return []
 
-        print(f"  ✅ 活动{campaign_id}采集到{len(valid_spots)}个广告位")
+        valid_spots = []
+        for idx, spot in enumerate(raw_data):
+            if not isinstance(spot, dict):
+                print(f"  ⚠️ 活动{campaign_id}第{idx + 1}条广告位数据非字典格式，跳过：{spot}")
+                continue
+
+            spot_id = spot.get("spot_id")
+            if not spot_id or str(spot_id).strip() == "":
+                print(f"  ⚠️ 活动{campaign_id}第{idx + 1}条广告位数据spot_id为空，跳过")
+                continue
+
+            spot["campaign_id"] = campaign_id
+            spot["pre_parse_raw_text"] = pre_parse_raw_text
+            valid_spots.append(spot)
+
+        print(f"  ✅ 活动{campaign_id}采集到{len(valid_spots)}个有效广告位")
         return valid_spots
     except Exception as e:
         print(f"  ❌ 活动{campaign_id}广告位采集失败：{str(e)}")
@@ -162,9 +192,10 @@ def collect_spot_data(token, campaign_id):
 
 
 def assemble_spot_data(all_spots):
-    """组装广告位数据"""
+    """组装广告位数据（适配ODPS写入格式）"""
     etl_datetime = get_etl_datetime()
     data = []
+    # 字段映射（需与MaxCompute表结构完全一致）
     field_mapping = [
         "campaign_id", "CAGUID", "GUID", "adposition_type", "area_size",
         "channel_name", "customize", "description", "landing_page", "market",
@@ -174,6 +205,7 @@ def assemble_spot_data(all_spots):
 
     for spot in all_spots:
         row = [safe_str(spot.get(field)) for field in field_mapping]
+        # 处理数组字段（转为JSON字符串）
         row.append(json.dumps(spot.get("spot_plan", []), ensure_ascii=False))
         row.append(json.dumps(spot.get("tracking_tags", []), ensure_ascii=False))
         row.append(safe_str(spot.get("pre_parse_raw_text")))
@@ -185,16 +217,20 @@ def assemble_spot_data(all_spots):
 # ===================== 主流程 =====================
 def main():
     print("=" * 80)
-    print("🚀 秒针广告位表采集任务启动")
+    print("🚀 秒针广告位表采集任务启动（写入MaxCompute）")
     print("=" * 80)
 
     try:
-        # 初始化
+        # 初始化ODPS客户端
         odps = init_odps_client()
+        # 获取Token
         token = get_miaozhen_token()
-
         # 获取活动ID
         campaign_ids = get_campaign_ids(token)
+
+        if not campaign_ids:
+            print("⚠️ 未获取到任何有效活动ID，任务终止")
+            return
 
         # 批量采集广告位
         all_spots = []
@@ -206,10 +242,13 @@ def main():
                 all_spots.extend(spots)
                 time.sleep(CONFIG["api"]["interval"])
 
-        # 组装+写入
-        data = assemble_spot_data(all_spots)
-        partition_dt = datetime.now().strftime("%Y%m%d")
-        write_odps_data(odps, data, partition_dt)
+        # 组装数据 + 写入MaxCompute
+        if all_spots:
+            data = assemble_spot_data(all_spots)
+            partition_dt = get_partition_dt()
+            write_odps_data(odps, data, partition_dt)
+        else:
+            print("⚠️ 未采集到任何广告位数据，跳过写入")
 
         print("\n" + "=" * 80)
         print("✅ 广告位表采集任务完成！")
