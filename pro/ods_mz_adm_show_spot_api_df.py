@@ -69,14 +69,10 @@ CONFIG = {
     "batch_size": 1000  # 批量写入大小
 }
 
-# 全局标记：是否已清空分区（确保仅清空一次）
-PARTITION_CLEARED = False
 
-
-# ====================== 通用ODPS写入函数（调整清空分区逻辑） ======================
+# ====================== 通用ODPS写入函数（完全复用你提供的版本） ======================
 def write_to_odps(table_name: str, data: List[List], dt: str):
-    """通用ODPS写入函数（仅第一次写入前清空分区+写入）"""
-    global PARTITION_CLEARED
+    """通用ODPS写入函数（清空分区+写入）"""
     if not data:
         print(f"⚠️ {table_name} 无数据可写入")
         return
@@ -88,11 +84,10 @@ def write_to_odps(table_name: str, data: List[List], dt: str):
     table = o.get_table(table_name)
     partition_spec = f"dt='{dt}'"
 
-    # 仅第一次写入前清空分区（防重复）
-    if not PARTITION_CLEARED and table.exist_partition(partition_spec):
+    # 清空分区（防重复）
+    if table.exist_partition(partition_spec):
         o.execute_sql(f"ALTER TABLE {table_name} DROP PARTITION ({partition_spec})")
         print(f"✅ 清空分区：{table_name}.{partition_spec}")
-        PARTITION_CLEARED = True  # 标记为已清空，后续不再执行
 
     # 写入数据
     with table.open_writer(partition=partition_spec, create_partition=True) as writer:
@@ -216,7 +211,8 @@ def get_spot_detail(token: str, campaign_id: str, spot_id_str: str) -> Optional[
         params = {
             "campaign_id": campaign_id,
             "spot_id_str": spot_id_str,
-            "access_token": token
+            "access_token": token,
+            "keyword": "on"  # 新增必传参数 keyword=on
         }
         resp = requests.get(
             CONFIG["api"]["campaign_show_spot_url"],

@@ -223,6 +223,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df (
     linked_siteid STRING COMMENT '关联站点ID（示例：null）',
     placement_name STRING COMMENT '投放位置名称（示例：ALL_信息流_KOL3）',
     spot_id_str STRING COMMENT '广告位字符串ID（示例：91m0C）',
+    keyword STRING COMMENT '广告位字符串ID（示例：91m0C）',
     adposition_type STRING COMMENT '广告位类型（示例：信息流）',
 
     -- 三、补充溯源字段
