@@ -6,6 +6,7 @@ import urllib3
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from odps import ODPS, errors
+from concurrent.futures import ThreadPoolExecutor, as_completed  # 新增：并行执行依赖
 
 # ===================== 全局配置 =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -17,7 +18,7 @@ API_CONFIG = {
     "report_basic_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/reports/basic/show",
     "auth": {"username": "Coach_api", "password": "Coachapi2026"},
     "timeout": 30,
-    "request_interval": 0.2  # 接口调用间隔，避免限流
+    "request_interval": 0.01  # 修改：休眠时间改为0.01秒
 }
 
 # 2. ODPS配置（DataWorks自动鉴权）
@@ -33,6 +34,12 @@ REPORT_PARAMS = {
     "metrics": "all",  # 必传：获取所有指标
     "by_position": "spot",  # 必传：按广告位维度
     "by_region_list": ["level0", "level1", "level2"]  # 遍历地区维度
+}
+
+# 5. 新增：并行/批次配置
+PARALLEL_CONFIG = {
+    "max_workers": 5,  # 并行度设为5
+    "batch_size": 20000  # 每批次写入20000条
 }
 
 
@@ -93,7 +100,7 @@ def to_string(value) -> str:
     return str(value)
 
 
-# ===================== 秒针接口调用 =====================
+# ===================== 秒针接口调用（适配并行）=====================
 def get_miaozhen_token() -> str:
     """获取秒针接口鉴权Token"""
     try:
@@ -143,113 +150,120 @@ def get_campaign_list(token: str) -> List[Dict]:
         raise Exception(f"采集活动列表失败：{str(e)}")
 
 
-def parse_report_data(token: str, campaign_id: str, report_date: str, by_region: str, camp_start: str, camp_end: str) -> \
-List[Dict]:
+def parse_single_campaign(token: str, campaign: Dict, daily_dt: str) -> List[List]:
     """
-    调用日报接口并解析数据（精准匹配建表字段）
+    并行执行函数：解析单个活动的单日期数据
     :param token: 秒针Token
-    :param campaign_id: 活动ID
-    :param report_date: 报表日期（10位，yyyy-MM-dd）
-    :param by_region: 地区维度（level0/level1/level2）
-    :param camp_start: 活动开始日期（10位，匹配start_date字段）
-    :param camp_end: 活动结束日期（10位，匹配end_date字段）
-    :return: 解析后的多region数据列表，失败返回空列表
+    :param campaign: 单个活动信息
+    :param daily_dt: 分区日期（8位）
+    :return: 该活动的待写入数据列表
     """
-    # 初始化返回结果
-    parse_result = []
-    try:
-        # 构造完整请求参数（含必传+遍历参数）
-        request_params = {
-            "campaign_id": campaign_id,
-            "date": report_date,
-            "metrics": REPORT_PARAMS["metrics"],
-            "by_position": REPORT_PARAMS["by_position"],
-            "by_region": by_region
-        }
-        # 调用接口
-        resp = requests.get(
-            f"{API_CONFIG['report_basic_url']}?access_token={token}",
-            params=request_params,
-            timeout=API_CONFIG["timeout"],
-            verify=False
-        )
-        resp.raise_for_status()
-        raw_data = resp.json()
+    campaign_data = []
+    camp_id = campaign["campaign_id"]
+    camp_start = campaign["camp_start_date"]
+    camp_end = campaign["camp_end_date"]
 
-        # 校验接口返回状态
-        if raw_data.get("error_code") != 0:
-            print(f"⚠️ 接口返回错误：{raw_data.get('error_message')}")
-            return parse_result
-        result = raw_data.get("result", {})
-        # 校验核心字段是否存在
-        if not all([result.get("date"), result.get("campaignId"), result.get("items")]):
-            print(f"⚠️ 接口返回核心字段缺失：{json.dumps(result, ensure_ascii=False)[:200]}...")
-            return parse_result
+    # 校验日期是否在活动有效期内
+    if not is_date_in_campaign_valid(daily_dt, camp_start, camp_end):
+        return campaign_data
 
-        # 解析items数组（核心：遍历每个region的指标数据）
-        items = result.get("items", [])
-        etl_datetime = get_etl_time()  # ETL落地时间（yyyy-MM-dd HH:mm:ss）
-        # 循环解析每个item，生成单条数据
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            # 解析attributes层（受众、地区ID等）
-            attributes = item.get("attributes", {})
-            # 解析metrics层（处理metrics为null的情况）
-            metrics = item.get("metrics", {}) if item.get("metrics") is not None else {}
+    # 转换日期格式
+    report_date_10bit = date_convert(daily_dt, "10位")
+    if not report_date_10bit:
+        print(f"⚠️ 日期{daily_dt}格式转换失败，跳过活动{camp_id}")
+        return campaign_data
 
-            # 构造单条数据（严格匹配建表字段顺序和名称）
-            single_data = {
-                # 建表字段一一映射
-                "campaign_id": to_string(result.get("campaignId")),
-                "start_date": to_string(camp_start),  # 活动开始日期（来自活动列表）
-                "end_date": to_string(camp_end),  # 活动结束日期（来自活动列表）
-                "date": to_string(result.get("date")),  # 数据日期（接口返回）
-                "version": to_string(result.get("version")),  # 版本号
-                "platform": "",  # 投放平台（接口未返回，填充空）
-                "total_spot_num": "",  # spot总量（接口未返回，填充空）
-                "audience": to_string(attributes.get("audience")),  # 报告受众人群维度
-                "target_id": "",  # 目标人群ID（接口未返回，填充空）
-                "publisher_id": "",  # 媒体ID（接口未返回，填充空）
-                "spot_id": "",  # 点位ID（接口未返回，填充空）
-                "keyword_id": "",  # 关键词ID（接口未返回，填充空）
-                "region_id": to_string(attributes.get("region_id")),  # 地域ID
-                "universe": to_string(attributes.get("universe")),  # 空注释字段
-                "imp_acc": to_string(metrics.get("imp_acc")),  # 累计曝光
-                "clk_acc": to_string(metrics.get("clk_acc")),  # 累计点击
-                "uim_acc": to_string(metrics.get("uim_acc")),  # 累计UV
-                "ucl_acc": to_string(metrics.get("ucl_acc")),  # 累计Clicker
-                "imp_day": to_string(metrics.get("imp_day")),  # 当日曝光
-                "clk_day": to_string(metrics.get("clk_day")),  # 当日点击
-                "uim_day": to_string(metrics.get("uim_day")),  # 当日UV
-                "ucl_day": to_string(metrics.get("ucl_day")),  # 当日Clicker
-                "imp_avg_day": to_string(metrics.get("imp_avg_day")),  # 日均曝光
-                "clk_avg_day": to_string(metrics.get("clk_avg_day")),  # 日均点击
-                "uim_avg_day": to_string(metrics.get("uim_avg_day")),  # 日均UV
-                "ucl_avg_day": to_string(metrics.get("ucl_avg_day")),  # 日均Clicker
-                "imp_acc_h00": "",  # 00点累计曝光（接口未返回）
-                "imp_acc_h23": "",  # 23点累计曝光（接口未返回）
-                "clk_acc_h00": "",  # 00点累计点击（接口未返回）
-                "clk_acc_h23": "",  # 23点累计点击（接口未返回）
-                "pre_parse_raw_text": to_string(json.dumps(item, ensure_ascii=False)),  # 源解析文本
-                "etl_datetime": to_string(etl_datetime)  # 数据落地时间
+    # 遍历by_region维度
+    for by_region in REPORT_PARAMS["by_region_list"]:
+        try:
+            # 构造请求参数
+            request_params = {
+                "campaign_id": camp_id,
+                "date": report_date_10bit,
+                "metrics": REPORT_PARAMS["metrics"],
+                "by_position": REPORT_PARAMS["by_position"],
+                "by_region": by_region
             }
-            parse_result.append(single_data)
+            # 调用接口
+            resp = requests.get(
+                f"{API_CONFIG['report_basic_url']}?access_token={token}",
+                params=request_params,
+                timeout=API_CONFIG["timeout"],
+                verify=False
+            )
+            resp.raise_for_status()
+            raw_data = resp.json()
 
-        print(f"🔍 解析完成：campaign_id={campaign_id} | by_region={by_region} | 解析出{len(parse_result)}条region数据")
-        return parse_result
-    except Exception as e:
-        print(f"⚠️ 采集解析失败：campaign_id={campaign_id} | by_region={by_region} | 错误：{str(e)}")
-        return parse_result
+            # 校验接口返回
+            if raw_data.get("error_code") != 0:
+                print(f"⚠️ 活动{camp_id} by_region={by_region} 返回错误：{raw_data.get('error_message')}")
+                time.sleep(API_CONFIG["request_interval"])
+                continue
+            result = raw_data.get("result", {})
+            if not all([result.get("date"), result.get("campaignId"), result.get("items")]):
+                print(f"⚠️ 活动{camp_id} by_region={by_region} 核心字段缺失")
+                time.sleep(API_CONFIG["request_interval"])
+                continue
+
+            # 解析items
+            items = result.get("items", [])
+            etl_datetime = get_etl_time()
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                attributes = item.get("attributes", {})
+                metrics = item.get("metrics", {}) if item.get("metrics") is not None else {}
+
+                # 组装写入行（匹配建表字段）
+                write_row = [
+                    to_string(result.get("campaignId")),
+                    to_string(camp_start),
+                    to_string(camp_end),
+                    to_string(result.get("date")),
+                    to_string(result.get("version")),
+                    "",  # platform
+                    "",  # total_spot_num
+                    to_string(attributes.get("audience")),
+                    "",  # target_id
+                    "",  # publisher_id
+                    "",  # spot_id
+                    "",  # keyword_id
+                    to_string(attributes.get("region_id")),
+                    to_string(attributes.get("universe")),
+                    to_string(metrics.get("imp_acc")),
+                    to_string(metrics.get("clk_acc")),
+                    to_string(metrics.get("uim_acc")),
+                    to_string(metrics.get("ucl_acc")),
+                    to_string(metrics.get("imp_day")),
+                    to_string(metrics.get("clk_day")),
+                    to_string(metrics.get("uim_day")),
+                    to_string(metrics.get("ucl_day")),
+                    to_string(metrics.get("imp_avg_day")),
+                    to_string(metrics.get("clk_avg_day")),
+                    to_string(metrics.get("uim_avg_day")),
+                    to_string(metrics.get("ucl_avg_day")),
+                    "",  # imp_acc_h00
+                    "",  # imp_acc_h23
+                    "",  # clk_acc_h00
+                    "",  # clk_acc_h23
+                    to_string(json.dumps(item, ensure_ascii=False)),
+                    to_string(etl_datetime)
+                ]
+                campaign_data.append(write_row)
+
+            time.sleep(API_CONFIG["request_interval"])
+        except Exception as e:
+            print(f"⚠️ 解析活动{camp_id} by_region={by_region} 失败：{str(e)}")
+            time.sleep(API_CONFIG["request_interval"])
+            continue
+
+    return campaign_data
 
 
-# ===================== ODPS写入核心函数 ======================
+# ===================== ODPS写入核心函数（修改批次大小）=====================
 def write_to_odps_partition(table_name: str, data: List[List], dt_partition: str):
     """
-    按每日分区写入ODPS（清空分区+分批写入，严格匹配建表字段顺序）
-    :param table_name: 目标表名（coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di）
-    :param data: 待写入数据（二维列表，字段顺序与建表语句完全一致）
-    :param dt_partition: 分区值（8位，yyyyMMdd）
+    按每日分区写入ODPS（清空分区+分批写入，批次大小改为20000）
     """
     if not data:
         print(f"⚠️ {table_name} 分区{dt_partition}无数据可写入，跳过")
@@ -263,20 +277,26 @@ def write_to_odps_partition(table_name: str, data: List[List], dt_partition: str
     partition_spec = f"dt='{dt_partition}'"
 
     try:
-        # 清空已有分区，防止数据重复
+        # 清空已有分区
         if table.exist_partition(partition_spec):
             drop_sql = f"ALTER TABLE {table_name} DROP PARTITION ({partition_spec})"
             o.execute_sql(drop_sql)
             print(f"✅ 已清空分区：{table_name}.{partition_spec}")
 
-        # 分批写入（每1000条一批，避免超时）
-        batch_size = 1000
+        # 分批写入（批次大小改为20000）
+        batch_size = PARALLEL_CONFIG["batch_size"]
         total_count = len(data)
-        for i in range(0, total_count, batch_size):
-            batch_data = data[i:i + batch_size]
+        batch_num = (total_count + batch_size - 1) // batch_size  # 向上取整计算批次
+
+        for i in range(batch_num):
+            start_idx = i * batch_size
+            end_idx = min((i + 1) * batch_size, total_count)
+            batch_data = data[start_idx:end_idx]
+
             with table.open_writer(partition=partition_spec, create_partition=True) as writer:
                 writer.write(batch_data)
-            print(f"🔄 分区{dt_partition} - 写入批次 {i // batch_size + 1}：{len(batch_data)}条")
+
+            print(f"🔄 分区{dt_partition} - 写入批次 {i + 1}/{batch_num}：{len(batch_data)}条")
 
         print(f"✅ 分区写入完成：{table_name} | 分区{dt_partition} | 总条数{total_count}")
     except errors.ODPSError as e:
@@ -285,28 +305,27 @@ def write_to_odps_partition(table_name: str, data: List[List], dt_partition: str
         raise Exception(f"分区写入异常：{str(e)}")
 
 
-# ===================== 主流程（整合所有逻辑）=====================
+# ===================== 主流程（整合并行逻辑）=====================
 def main():
     """
     核心执行流程：
     1. 按START_DT/END_DT生成每日分区
-    2. 校验日期是否在活动有效期内
-    3. 遍历by_region[level0/level1/level2]调用接口
-    4. 解析接口返回的items数组（匹配建表字段）
-    5. 组装数据写入对应dt分区
+    2. 多线程并行解析不同活动的数据（并行度5）
+    3. 合并数据后按20000条/批写入ODPS
     """
     try:
         # 任务初始化日志
         print(f"===== 任务开始：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
         print(f"分区范围：{START_DT} ~ {END_DT} | 目标表：{TARGET_TABLE}")
-        print(f"接口参数：metrics={REPORT_PARAMS['metrics']} | by_position={REPORT_PARAMS['by_position']}")
-        print(f"遍历维度：{REPORT_PARAMS['by_region_list']}")
+        print(f"并行配置：max_workers={PARALLEL_CONFIG['max_workers']} | batch_size={PARALLEL_CONFIG['batch_size']}")
+        print(
+            f"接口参数：metrics={REPORT_PARAMS['metrics']} | by_position={REPORT_PARAMS['by_position']} | request_interval={API_CONFIG['request_interval']}")
 
         # 1. 获取秒针Token
         token = get_miaozhen_token()
         print(f"✅ 秒针Token获取成功")
 
-        # 2. 获取活动列表（含开始/结束日期）
+        # 2. 获取活动列表
         campaign_list = get_campaign_list(token)
         if not campaign_list:
             raise Exception("❌ 活动列表为空，任务终止")
@@ -315,95 +334,45 @@ def main():
         daily_partition_dates = get_date_range_by_start_end(START_DT, END_DT)
         print(f"✅ 生成每日分区：共{len(daily_partition_dates)}天")
 
-        # 4. 按每日分区处理数据
+        # 4. 按每日分区处理数据（并行解析）
         for daily_dt in daily_partition_dates:
             print(f"\n========== 处理分区日期：{daily_dt} ==========")
-            daily_write_data = []  # 存储当前分区所有待写入数据
+            daily_write_data = []
 
-            # 遍历每个活动
-            for campaign in campaign_list:
-                camp_id = campaign["campaign_id"]
-                camp_start = campaign["camp_start_date"]  # 活动开始日期（10位）
-                camp_end = campaign["camp_end_date"]  # 活动结束日期（10位）
+            # 初始化线程池（并行度5）
+            with ThreadPoolExecutor(max_workers=PARALLEL_CONFIG["max_workers"]) as executor:
+                # 提交并行任务
+                future_to_campaign = {
+                    executor.submit(parse_single_campaign, token, campaign, daily_dt): campaign
+                    for campaign in campaign_list
+                }
 
-                # 核心校验：日期是否在活动有效期内，无效则跳过
-                if not is_date_in_campaign_valid(daily_dt, camp_start, camp_end):
-                    continue
-
-                # 转换日期格式（8位→10位），供接口调用
-                report_date_10bit = date_convert(daily_dt, "10位")
-                if not report_date_10bit:
-                    print(f"⚠️ 日期{daily_dt}格式转换失败，跳过活动{camp_id}")
-                    continue
-
-                # 遍历by_region三个维度：level0/level1/level2
-                for by_region in REPORT_PARAMS["by_region_list"]:
-                    # 调用接口并解析数据（传入活动开始/结束日期，匹配表字段）
-                    region_data_list = parse_report_data(token, camp_id, report_date_10bit, by_region, camp_start,
-                                                         camp_end)
-                    if not region_data_list:
-                        time.sleep(API_CONFIG["request_interval"])
+                # 收集并行结果
+                for future in as_completed(future_to_campaign):
+                    campaign = future_to_campaign[future]
+                    try:
+                        campaign_data = future.result()
+                        if campaign_data:
+                            daily_write_data.extend(campaign_data)
+                    except Exception as e:
+                        print(f"❌ 并行解析活动{campaign['campaign_id']}失败：{str(e)}")
                         continue
 
-                    # 组装ODPS写入数据（严格匹配建表字段顺序）
-                    for single_data in region_data_list:
-                        write_row = [
-                            # 建表字段顺序一字不差
-                            single_data["campaign_id"],
-                            single_data["start_date"],
-                            single_data["end_date"],
-                            single_data["date"],
-                            single_data["version"],
-                            single_data["platform"],
-                            single_data["total_spot_num"],
-                            single_data["audience"],
-                            single_data["target_id"],
-                            single_data["publisher_id"],
-                            single_data["spot_id"],
-                            single_data["keyword_id"],
-                            single_data["region_id"],
-                            single_data["universe"],
-                            single_data["imp_acc"],
-                            single_data["clk_acc"],
-                            single_data["uim_acc"],
-                            single_data["ucl_acc"],
-                            single_data["imp_day"],
-                            single_data["clk_day"],
-                            single_data["uim_day"],
-                            single_data["ucl_day"],
-                            single_data["imp_avg_day"],
-                            single_data["clk_avg_day"],
-                            single_data["uim_avg_day"],
-                            single_data["ucl_avg_day"],
-                            single_data["imp_acc_h00"],
-                            single_data["imp_acc_h23"],
-                            single_data["clk_acc_h00"],
-                            single_data["clk_acc_h23"],
-                            single_data["pre_parse_raw_text"],
-                            single_data["etl_datetime"]
-                            # 分区字段dt不包含在write_row中，由partition_spec指定
-                        ]
-                        daily_write_data.append(write_row)
-
-                    # 接口限流：每个维度调用后休眠
-                    time.sleep(API_CONFIG["request_interval"])
-
-            # 5. 写入当前日期的ODPS分区
+            # 5. 写入ODPS分区（20000条/批）
             if daily_write_data:
                 write_to_odps_partition(TARGET_TABLE, daily_write_data, daily_dt)
             else:
                 print(f"⚠️ 分区{daily_dt}无有效数据，跳过写入")
 
-        # 任务结束统计
+        # 任务结束
         print(f"\n===== 任务完成：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
         print(f"📊 任务总结：")
-        print(f"   - 处理分区数：{len(daily_partition_dates)}个（{START_DT}~{END_DT}）")
-        print(f"   - 遍历地区维度：{REPORT_PARAMS['by_region_list']}")
-        print(f"   - 目标表：{TARGET_TABLE}（字段完全匹配建表语句）")
+        print(f"   - 处理分区数：{len(daily_partition_dates)}个")
+        print(f"   - 并行度：{PARALLEL_CONFIG['max_workers']} | 批次大小：{PARALLEL_CONFIG['batch_size']}条")
 
     except Exception as e:
         print(f"❌ 任务执行失败：{str(e)}")
-        raise  # 抛出异常，触发DataWorks任务失败
+        raise
 
 
 if __name__ == "__main__":
