@@ -2,7 +2,7 @@
 """
 秒针Campaign广告位详情采集脚本
 功能：采集数据并分批写入ODPS（仅首次清空分区，最终存储全量数据）
-新增：任务执行时间统计（开始/结束时间、总时长）
+新增：1. 任务执行时间统计 2. campaign_show_spot_url接口并行访问（并行度=10）
 数据来源：/cms/v1/campaigns/show_spot 接口
 适配表结构：ods_mz_adm_show_spot_api_df（含keyword字段）
 依赖：odps库（pip install odps）
@@ -12,8 +12,9 @@ import json
 import time
 import urllib3
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from odps import ODPS
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ===================== 全局配置 & 初始化 =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -45,7 +46,7 @@ CONFIG = {
             "linked_siteid",
             "placement_name",
             "spot_id_str",
-            "keyword",          # 关键词列表（JSON格式）
+            "keyword",  # 关键词列表（JSON格式）
             "adposition_type",
             "pre_parse_raw_text",
             "etl_datetime"
@@ -65,7 +66,8 @@ CONFIG = {
         "campaign_list_spots_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/list_spots",
         "campaign_show_spot_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/show_spot",
         "timeout": 30,
-        "interval": 0.02
+        "interval": 0.02,
+        "parallelism": 10  # campaign_show_spot_url接口并行度
     },
     "batch_size": 1000  # 批量写入大小（1000条/批）
 }
@@ -178,7 +180,8 @@ def get_campaign_ids(token: str) -> List[str]:
             data_nodes = ["result", "list", "data", "campaigns"]
             for node in data_nodes:
                 if node in raw_data and isinstance(raw_data[node], list):
-                    campaign_ids = [to_string(item.get("campaign_id")) for item in raw_data[node] if item.get("campaign_id")]
+                    campaign_ids = [to_string(item.get("campaign_id")) for item in raw_data[node] if
+                                    item.get("campaign_id")]
                     break
             if not campaign_ids and raw_data.get("campaign_id"):
                 campaign_ids = [to_string(raw_data.get("campaign_id"))]
@@ -214,7 +217,8 @@ def get_spot_id_str_list(token: str, campaign_id: str) -> List[str]:
         if isinstance(spots_data, list):
             spot_id_str_list = [to_string(item.get("spot_id_str")) for item in spots_data if item.get("spot_id_str")]
         elif isinstance(spots_data, dict) and "result" in spots_data:
-            spot_id_str_list = [to_string(item.get("spot_id_str")) for item in spots_data["result"] if item.get("spot_id_str")]
+            spot_id_str_list = [to_string(item.get("spot_id_str")) for item in spots_data["result"] if
+                                item.get("spot_id_str")]
 
         # 去重+过滤空值
         spot_id_str_list = list(set([sid for sid in spot_id_str_list if sid]))
@@ -227,9 +231,9 @@ def get_spot_id_str_list(token: str, campaign_id: str) -> List[str]:
 
 
 # ===================== 采集单个广告位详情（适配keyword字段） =====================
-def get_spot_detail(token: str, campaign_id: str, spot_id_str: str) -> Optional[Dict]:
+def get_spot_detail_worker(token: str, campaign_id: str, spot_id_str: str) -> Optional[Dict]:
     """
-    采集单个campaign_id+spot_id_str对应的广告位详情
+    单个广告位详情采集工作函数（供线程池调用）
     核心：处理keyword字段（JSON格式）、接口必传参数keyword=on
     """
     try:
@@ -273,12 +277,43 @@ def get_spot_detail(token: str, campaign_id: str, spot_id_str: str) -> Optional[
         # 补充原始文本字段（完整接口返回数据，用于排查问题）
         standard_spot["pre_parse_raw_text"] = to_string(json.dumps(spot_detail, ensure_ascii=False))
 
-        print(f"✅ campaign_id={campaign_id}, spot_id_str={spot_id_str} 采集成功")
+        print(
+            f"✅ campaign_id={campaign_id}, spot_id_str={spot_id_str} 采集成功（线程：{threading.current_thread().name}）")
         time.sleep(CONFIG["api"]["interval"])
         return standard_spot
     except Exception as e:
         print(f"⚠️ campaign_id={campaign_id}, spot_id_str={spot_id_str} 采集失败，跳过：{str(e)}")
         return None
+
+
+# ===================== 批量并行采集广告位详情 =====================
+def batch_get_spot_detail(token: str, campaign_id: str, spot_id_str_list: List[str]) -> List[Dict]:
+    """
+    批量并行采集广告位详情
+    核心：使用线程池实现10线程并行调用campaign_show_spot_url接口
+    """
+    spot_detail_list = []
+    parallelism = CONFIG["api"]["parallelism"]
+
+    # 创建线程池，并行度=10
+    with ThreadPoolExecutor(max_workers=parallelism, thread_name_prefix="SpotDetail") as executor:
+        # 提交所有采集任务
+        future_to_spot = {
+            executor.submit(get_spot_detail_worker, token, campaign_id, spot_id_str): spot_id_str
+            for spot_id_str in spot_id_str_list
+        }
+
+        # 处理完成的任务
+        for future in as_completed(future_to_spot):
+            spot_id_str = future_to_spot[future]
+            try:
+                result = future.result()
+                if result:
+                    spot_detail_list.append(result)
+            except Exception as e:
+                print(f"⚠️ campaign_id={campaign_id}, spot_id_str={spot_id_str} 线程执行异常，跳过：{str(e)}")
+
+    return spot_detail_list
 
 
 # ===================== 数据转换（适配ODPS写入格式） =====================
@@ -296,9 +331,9 @@ def convert_data_to_list(data_list: List[Dict]) -> List[List]:
     return write_data
 
 
-# ===================== 主流程（分批采集+分批写入+时间统计） =====================
+# ===================== 主流程（分批采集+分批写入+时间统计+并行采集） =====================
 def main():
-    """主执行流程：Token获取 → 采集数据 → 分批写入ODPS + 任务时间统计"""
+    """主执行流程：Token获取 → 采集数据 → 分批写入ODPS + 任务时间统计 + 并行采集"""
     # 初始化任务时间统计
     task_start_time = datetime.now()  # 任务开始时间（datetime对象，用于计算时长）
     task_start_str = task_start_time.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # 格式化到毫秒
@@ -307,7 +342,8 @@ def main():
         print("=" * 100)
         print("🚀 秒针广告位详情采集+ODPS写入任务启动")
         print(f"📅 任务开始时间：{task_start_str}")
-        print(f"🔧 全局ODPS项目：{ODPS_PROJECT} | 批量写入大小：{CONFIG['batch_size']}条/批")
+        print(
+            f"🔧 全局ODPS项目：{ODPS_PROJECT} | 批量写入大小：{CONFIG['batch_size']}条/批 | 接口并行度：{CONFIG['api']['parallelism']}")
         print("=" * 100)
 
         # 1. 前置校验：ODPS项目是否有效
@@ -334,17 +370,16 @@ def main():
             if not spot_id_str_list:
                 continue
 
-            # 采集每个spot的详情
-            for spot_id_str in spot_id_str_list:
-                spot_detail = get_spot_detail(token, campaign_id, spot_id_str)
-                if spot_detail:
-                    all_spot_detail_data.append(spot_detail)
+            # 批量并行采集每个spot的详情（并行度=10）
+            spot_detail_list = batch_get_spot_detail(token, campaign_id, spot_id_str_list)
+            if spot_detail_list:
+                all_spot_detail_data.extend(spot_detail_list)
 
-                    # 达到批量大小则写入ODPS
-                    if len(all_spot_detail_data) >= CONFIG["batch_size"]:
-                        write_data = convert_data_to_list(all_spot_detail_data)
-                        write_to_odps(target_table, write_data, partition_dt)
-                        all_spot_detail_data = []  # 清空缓存，准备下一批
+                # 达到批量大小则写入ODPS
+                if len(all_spot_detail_data) >= CONFIG["batch_size"]:
+                    write_data = convert_data_to_list(all_spot_detail_data)
+                    write_to_odps(target_table, write_data, partition_dt)
+                    all_spot_detail_data = []  # 清空缓存，准备下一批
 
         # 5. 写入剩余数据（不足1000条的部分）
         if all_spot_detail_data:
@@ -366,7 +401,7 @@ def main():
         print(f"📅 任务结束时间：{task_end_str}")
         print(f"⏱️  任务总时长：{duration_min}分{duration_sec}秒（{task_duration:.3f}秒）")
         print(f"📌 数据写入位置：{ODPS_PROJECT}.{target_table}（分区：dt='{partition_dt}'）")
-        print(f"📌 核心说明：仅首次写入前清空分区，全量数据已保留")
+        print(f"📌 核心说明：仅首次写入前清空分区，全量数据已保留 | 接口并行度：{CONFIG['api']['parallelism']}")
         print("=" * 100)
 
     except Exception as e:
@@ -387,4 +422,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # 新增线程模块导入（修复worker函数中threading引用）
+    import threading
+
     main()
