@@ -113,7 +113,11 @@ def init_odps_client():
     """初始化ODPS客户端"""
     try:
         odps = ODPS(project=ODPS_PROJECT)
-        print(f"✅ ODPS初始化成功 | 项目：{ODPS_PROJECT}")
+        options.tunnel.use_instance_tunnel = True
+        options.read_timeout = 300
+        options.connect_timeout = 60
+        options.tunnel.limit_instance_tunnel = False
+        print(f"✅ ODPS初始化成功 | 项目：{odps.project}")
         return odps
     except Exception as e:
         raise Exception(f"ODPS初始化失败：{str(e)}")
@@ -151,7 +155,7 @@ def write_odps_data(odps, data, partition_dt):
 
 # ===================== 核心业务逻辑 =====================
 def collect_spot_data(token, campaign_id):
-    """适配纯数组格式的广告位数据，正确解析"""
+    """适配纯数组格式的广告位数据，正确解析（pre_parse_raw_text仅保留对应字段）"""
     try:
         params = {"access_token": token, "campaign_id": campaign_id}
         resp = requests.get(
@@ -161,7 +165,6 @@ def collect_spot_data(token, campaign_id):
             verify=False
         )
         resp.raise_for_status()
-        pre_parse_raw_text = resp.text
         raw_data = resp.json()
 
         if not isinstance(raw_data, list):
@@ -170,6 +173,14 @@ def collect_spot_data(token, campaign_id):
             return []
 
         valid_spots = []
+        # 定义需要保留的核心字段（与入库字段对应）
+        core_fields = [
+            "CAGUID", "GUID", "adposition_type", "area_size", "channel_name",
+            "customize", "description", "landing_page", "market", "placement_name",
+            "publisher_id", "publisher_name", "report_metrics", "spot_id",
+            "spot_id_str", "spot_plan", "tracking_tags", "vending_model"
+        ]
+
         for idx, spot in enumerate(raw_data):
             if not isinstance(spot, dict):
                 print(f"  ⚠️ 活动{campaign_id}第{idx + 1}条广告位数据非字典格式，跳过：{spot}")
@@ -180,8 +191,12 @@ def collect_spot_data(token, campaign_id):
                 print(f"  ⚠️ 活动{campaign_id}第{idx + 1}条广告位数据spot_id为空，跳过")
                 continue
 
+            # 核心修改：pre_parse_raw_text仅保留当前广告位的核心字段原始数据
+            spot_core_data = {k: spot.get(k) for k in core_fields if k in spot}
+            spot["pre_parse_raw_text"] = json.dumps(spot_core_data, ensure_ascii=False)
+            # 补充campaign_id关联字段
             spot["campaign_id"] = campaign_id
-            spot["pre_parse_raw_text"] = pre_parse_raw_text
+
             valid_spots.append(spot)
 
         print(f"  ✅ 活动{campaign_id}采集到{len(valid_spots)}个有效广告位")
@@ -208,6 +223,7 @@ def assemble_spot_data(all_spots):
         # 处理数组字段（转为JSON字符串）
         row.append(json.dumps(spot.get("spot_plan", []), ensure_ascii=False))
         row.append(json.dumps(spot.get("tracking_tags", []), ensure_ascii=False))
+        # 写入仅保留核心字段的原始数据
         row.append(safe_str(spot.get("pre_parse_raw_text")))
         row.append(etl_datetime)
         data.append(row)
