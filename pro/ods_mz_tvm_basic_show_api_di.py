@@ -20,9 +20,9 @@ API_CONFIG = {
     "request_interval": 0.2  # 接口调用间隔，避免限流
 }
 
-# 2. ODPS配置（DataWorks自动鉴权，无需access_id/access_key）
+# 2. ODPS配置（DataWorks自动鉴权）
 ODPS_PROJECT = ODPS().project  # 自动获取当前DataWorks项目名
-TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"  # 唯一目标表
+TARGET_TABLE = "coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di"  # 指定目标表
 
 # 3. 核心日期配置（按此范围生成每日分区）
 START_DT = '20260101'  # 起始日期（8位，yyyyMMdd）
@@ -38,7 +38,7 @@ REPORT_PARAMS = {
 
 # ===================== 核心工具函数 =====================
 def get_etl_time() -> str:
-    """获取当前ETL时间戳（yyyy-MM-dd HH:mm:ss）"""
+    """获取当前ETL时间戳（yyyy-MM-dd HH:mm:ss），对应etl_datetime字段"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -117,7 +117,7 @@ def get_miaozhen_token() -> str:
 
 
 def get_campaign_list(token: str) -> List[Dict]:
-    """获取活动列表（仅保留ID和有效期，用于过滤）"""
+    """获取活动列表（含活动开始/结束日期，匹配表start_date/end_date字段）"""
     try:
         resp = requests.get(
             f"{API_CONFIG['campaign_list_url']}?access_token={token}",
@@ -132,8 +132,10 @@ def get_campaign_list(token: str) -> List[Dict]:
                 continue
             valid_campaigns.append({
                 "campaign_id": to_string(c.get("campaign_id")),
-                "camp_start_date": to_string(c.get("start_time")),
-                "camp_end_date": to_string(c.get("end_time"))
+                "camp_start_date": to_string(c.get("start_time")),  # 活动开始日期（10位）
+                "camp_end_date": to_string(c.get("end_time")),  # 活动结束日期（10位）
+                "camp_start_dt": to_string(c.get("start_time")),  # 兼容字段
+                "camp_end_dt": to_string(c.get("end_time"))  # 兼容字段
             })
         print(f"✅ 采集到有效活动列表：共{len(valid_campaigns)}个")
         return valid_campaigns
@@ -141,13 +143,16 @@ def get_campaign_list(token: str) -> List[Dict]:
         raise Exception(f"采集活动列表失败：{str(e)}")
 
 
-def parse_report_data(token: str, campaign_id: str, report_date: str, by_region: str) -> List[Dict]:
+def parse_report_data(token: str, campaign_id: str, report_date: str, by_region: str, camp_start: str, camp_end: str) -> \
+List[Dict]:
     """
-    调用日报接口并解析返回数据（核心适配真实返回结构）
+    调用日报接口并解析数据（精准匹配建表字段）
     :param token: 秒针Token
     :param campaign_id: 活动ID
     :param report_date: 报表日期（10位，yyyy-MM-dd）
     :param by_region: 地区维度（level0/level1/level2）
+    :param camp_start: 活动开始日期（10位，匹配start_date字段）
+    :param camp_end: 活动结束日期（10位，匹配end_date字段）
     :return: 解析后的多region数据列表，失败返回空列表
     """
     # 初始化返回结果
@@ -183,7 +188,8 @@ def parse_report_data(token: str, campaign_id: str, report_date: str, by_region:
 
         # 解析items数组（核心：遍历每个region的指标数据）
         items = result.get("items", [])
-        etl_date = get_etl_time().split(" ")[0]  # ETL日期（yyyy-MM-dd）
+        etl_datetime = get_etl_time()  # ETL落地时间（yyyy-MM-dd HH:mm:ss）
+        # 循环解析每个item，生成单条数据
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -192,33 +198,41 @@ def parse_report_data(token: str, campaign_id: str, report_date: str, by_region:
             # 解析metrics层（处理metrics为null的情况）
             metrics = item.get("metrics", {}) if item.get("metrics") is not None else {}
 
-            # 构造单条数据（严格匹配接口返回字段，空值自动填充）
+            # 构造单条数据（严格匹配建表字段顺序和名称）
             single_data = {
-                # 顶层公共字段
+                # 建表字段一一映射
                 "campaign_id": to_string(result.get("campaignId")),
-                "report_date": to_string(result.get("date")),
-                "version": to_string(result.get("version")),
-                "by_region": to_string(by_region),  # 记录当前遍历的地区维度
-                # attributes层字段
-                "audience": to_string(attributes.get("audience")),
-                "universe": to_string(attributes.get("universe")),
-                "region_id": to_string(attributes.get("region_id")),
-                # metrics层核心指标（接口返回的所有指标）
-                "clk_acc": to_string(metrics.get("clk_acc")),
-                "clk_avg_day": to_string(metrics.get("clk_avg_day")),
-                "clk_day": to_string(metrics.get("clk_day")),
-                "imp_acc": to_string(metrics.get("imp_acc")),
-                "imp_avg_day": to_string(metrics.get("imp_avg_day")),
-                "imp_day": to_string(metrics.get("imp_day")),
-                "ucl_acc": to_string(metrics.get("ucl_acc")),
-                "ucl_avg_day": to_string(metrics.get("ucl_avg_day")),
-                "ucl_day": to_string(metrics.get("ucl_day")),
-                "uim_acc": to_string(metrics.get("uim_acc")),
-                "uim_avg_day": to_string(metrics.get("uim_avg_day")),
-                "uim_day": to_string(metrics.get("uim_day")),
-                # ETL相关字段
-                "pre_parse_raw_text": to_string(json.dumps(item, ensure_ascii=False)),  # 单条item原始数据
-                "etl_date": to_string(etl_date)
+                "start_date": to_string(camp_start),  # 活动开始日期（来自活动列表）
+                "end_date": to_string(camp_end),  # 活动结束日期（来自活动列表）
+                "date": to_string(result.get("date")),  # 数据日期（接口返回）
+                "version": to_string(result.get("version")),  # 版本号
+                "platform": "",  # 投放平台（接口未返回，填充空）
+                "total_spot_num": "",  # spot总量（接口未返回，填充空）
+                "audience": to_string(attributes.get("audience")),  # 报告受众人群维度
+                "target_id": "",  # 目标人群ID（接口未返回，填充空）
+                "publisher_id": "",  # 媒体ID（接口未返回，填充空）
+                "spot_id": "",  # 点位ID（接口未返回，填充空）
+                "keyword_id": "",  # 关键词ID（接口未返回，填充空）
+                "region_id": to_string(attributes.get("region_id")),  # 地域ID
+                "universe": to_string(attributes.get("universe")),  # 空注释字段
+                "imp_acc": to_string(metrics.get("imp_acc")),  # 累计曝光
+                "clk_acc": to_string(metrics.get("clk_acc")),  # 累计点击
+                "uim_acc": to_string(metrics.get("uim_acc")),  # 累计UV
+                "ucl_acc": to_string(metrics.get("ucl_acc")),  # 累计Clicker
+                "imp_day": to_string(metrics.get("imp_day")),  # 当日曝光
+                "clk_day": to_string(metrics.get("clk_day")),  # 当日点击
+                "uim_day": to_string(metrics.get("uim_day")),  # 当日UV
+                "ucl_day": to_string(metrics.get("ucl_day")),  # 当日Clicker
+                "imp_avg_day": to_string(metrics.get("imp_avg_day")),  # 日均曝光
+                "clk_avg_day": to_string(metrics.get("clk_avg_day")),  # 日均点击
+                "uim_avg_day": to_string(metrics.get("uim_avg_day")),  # 日均UV
+                "ucl_avg_day": to_string(metrics.get("ucl_avg_day")),  # 日均Clicker
+                "imp_acc_h00": "",  # 00点累计曝光（接口未返回）
+                "imp_acc_h23": "",  # 23点累计曝光（接口未返回）
+                "clk_acc_h00": "",  # 00点累计点击（接口未返回）
+                "clk_acc_h23": "",  # 23点累计点击（接口未返回）
+                "pre_parse_raw_text": to_string(json.dumps(item, ensure_ascii=False)),  # 源解析文本
+                "etl_datetime": to_string(etl_datetime)  # 数据落地时间
             }
             parse_result.append(single_data)
 
@@ -229,12 +243,12 @@ def parse_report_data(token: str, campaign_id: str, report_date: str, by_region:
         return parse_result
 
 
-# ===================== ODPS写入核心函数（原逻辑保留）=====================
+# ===================== ODPS写入核心函数 ======================
 def write_to_odps_partition(table_name: str, data: List[List], dt_partition: str):
     """
-    按每日分区写入ODPS（清空分区+分批写入，DataWorks自动鉴权）
-    :param table_name: 目标表名
-    :param data: 待写入数据（二维列表，字段顺序与表一致）
+    按每日分区写入ODPS（清空分区+分批写入，严格匹配建表字段顺序）
+    :param table_name: 目标表名（coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di）
+    :param data: 待写入数据（二维列表，字段顺序与建表语句完全一致）
     :param dt_partition: 分区值（8位，yyyyMMdd）
     """
     if not data:
@@ -278,7 +292,7 @@ def main():
     1. 按START_DT/END_DT生成每日分区
     2. 校验日期是否在活动有效期内
     3. 遍历by_region[level0/level1/level2]调用接口
-    4. 解析接口返回的items数组（多region数据）
+    4. 解析接口返回的items数组（匹配建表字段）
     5. 组装数据写入对应dt分区
     """
     try:
@@ -292,7 +306,7 @@ def main():
         token = get_miaozhen_token()
         print(f"✅ 秒针Token获取成功")
 
-        # 2. 获取活动列表（仅用于过滤）
+        # 2. 获取活动列表（含开始/结束日期）
         campaign_list = get_campaign_list(token)
         if not campaign_list:
             raise Exception("❌ 活动列表为空，任务终止")
@@ -309,8 +323,8 @@ def main():
             # 遍历每个活动
             for campaign in campaign_list:
                 camp_id = campaign["campaign_id"]
-                camp_start = campaign["camp_start_date"]
-                camp_end = campaign["camp_end_date"]
+                camp_start = campaign["camp_start_date"]  # 活动开始日期（10位）
+                camp_end = campaign["camp_end_date"]  # 活动结束日期（10位）
 
                 # 核心校验：日期是否在活动有效期内，无效则跳过
                 if not is_date_in_campaign_valid(daily_dt, camp_start, camp_end):
@@ -324,42 +338,50 @@ def main():
 
                 # 遍历by_region三个维度：level0/level1/level2
                 for by_region in REPORT_PARAMS["by_region_list"]:
-                    # 调用接口并解析数据（返回多region数据列表）
-                    region_data_list = parse_report_data(token, camp_id, report_date_10bit, by_region)
+                    # 调用接口并解析数据（传入活动开始/结束日期，匹配表字段）
+                    region_data_list = parse_report_data(token, camp_id, report_date_10bit, by_region, camp_start,
+                                                         camp_end)
                     if not region_data_list:
                         time.sleep(API_CONFIG["request_interval"])
                         continue
 
-                    # 组装ODPS写入数据（二维列表，字段顺序与表严格一致）
+                    # 组装ODPS写入数据（严格匹配建表字段顺序）
                     for single_data in region_data_list:
                         write_row = [
-                            # 顶层字段
+                            # 建表字段顺序一字不差
                             single_data["campaign_id"],
-                            single_data["report_date"],
+                            single_data["start_date"],
+                            single_data["end_date"],
+                            single_data["date"],
                             single_data["version"],
-                            single_data["by_region"],
-                            # attributes层字段
+                            single_data["platform"],
+                            single_data["total_spot_num"],
                             single_data["audience"],
-                            single_data["universe"],
+                            single_data["target_id"],
+                            single_data["publisher_id"],
+                            single_data["spot_id"],
+                            single_data["keyword_id"],
                             single_data["region_id"],
-                            # metrics层指标（按接口返回顺序）
-                            single_data["clk_acc"],
-                            single_data["clk_avg_day"],
-                            single_data["clk_day"],
+                            single_data["universe"],
                             single_data["imp_acc"],
-                            single_data["imp_avg_day"],
-                            single_data["imp_day"],
-                            single_data["ucl_acc"],
-                            single_data["ucl_avg_day"],
-                            single_data["ucl_day"],
+                            single_data["clk_acc"],
                             single_data["uim_acc"],
-                            single_data["uim_avg_day"],
+                            single_data["ucl_acc"],
+                            single_data["imp_day"],
+                            single_data["clk_day"],
                             single_data["uim_day"],
-                            # ETL字段
+                            single_data["ucl_day"],
+                            single_data["imp_avg_day"],
+                            single_data["clk_avg_day"],
+                            single_data["uim_avg_day"],
+                            single_data["ucl_avg_day"],
+                            single_data["imp_acc_h00"],
+                            single_data["imp_acc_h23"],
+                            single_data["clk_acc_h00"],
+                            single_data["clk_acc_h23"],
                             single_data["pre_parse_raw_text"],
-                            single_data["etl_date"],
-                            # 分区字段（dt，8位）
-                            daily_dt
+                            single_data["etl_datetime"]
+                            # 分区字段dt不包含在write_row中，由partition_spec指定
                         ]
                         daily_write_data.append(write_row)
 
@@ -377,7 +399,7 @@ def main():
         print(f"📊 任务总结：")
         print(f"   - 处理分区数：{len(daily_partition_dates)}个（{START_DT}~{END_DT}）")
         print(f"   - 遍历地区维度：{REPORT_PARAMS['by_region_list']}")
-        print(f"   - 核心规则：仅活动有效期内的日期执行采集解析")
+        print(f"   - 目标表：{TARGET_TABLE}（字段完全匹配建表语句）")
 
     except Exception as e:
         print(f"❌ 任务执行失败：{str(e)}")
