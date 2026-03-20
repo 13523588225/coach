@@ -1,478 +1,590 @@
 -- API表结构
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_campaigns_list_api_df (
-    campaign_id        STRING COMMENT '活动ID',
-    start_date         STRING COMMENT '活动开始日期',
-    end_date           STRING COMMENT '活动结束日期',
-    advertiser_name    STRING COMMENT '广告主名称',
-    agency_name        STRING COMMENT '代理商名称',
-    brand_name         STRING COMMENT '品牌名称',
-    calculation_type   STRING COMMENT '计算类型',
-    campaign_name      STRING COMMENT '活动名称',
-    campaign_type      STRING COMMENT '活动类型',
-    creator_name       STRING COMMENT '创建人',
-    description        STRING COMMENT '活动描述',
-    linked_iplib       STRING COMMENT '关联IP库',
-    linked_panels      STRING COMMENT '关联面板',
-    linked_siteids     STRING COMMENT '关联站点ID',
-    slot_type          STRING COMMENT '广告位类型',
-    pre_parse_raw_text STRING COMMENT '源解析文本',
-    etl_datetime           STRING COMMENT '数据落地时间'
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_campaigns_list_api_df
+(
+    campaign_id         STRING COMMENT '活动ID'
+    ,start_date         STRING COMMENT '活动开始日期'
+    ,end_date           STRING COMMENT '活动结束日期'
+    ,advertiser_name    STRING COMMENT '广告主名称'
+    ,agency_name        STRING COMMENT '代理商名称'
+    ,brand_name         STRING COMMENT '品牌名称'
+    ,calculation_type   STRING COMMENT '计算类型'
+    ,campaign_name      STRING COMMENT '活动名称'
+    ,campaign_type      STRING COMMENT '活动类型'
+    ,creator_name       STRING COMMENT '创建人'
+    ,description        STRING COMMENT '活动描述'
+    ,linked_iplib       STRING COMMENT '关联IP库'
+    ,linked_panels      STRING COMMENT '关联面板'
+    ,linked_siteids     STRING COMMENT '关联站点ID'
+    ,slot_type          STRING COMMENT '广告位类型'
+    ,pre_parse_raw_text STRING COMMENT '源解析文本'
+    ,etl_datetime       STRING COMMENT '数据落地时间'
 )
 COMMENT '秒针活动信息表（CMS campaigns list接口）'
-PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd');
+PARTITIONED BY 
+(
+    dt                  STRING COMMENT '分区yyyyMMdd'
+)
+;
 
-
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di
+(
     -- 1. 活动核心信息字段（从/cms/v1/campaigns/list接口获取）
-    campaign_id          STRING  COMMENT '活动ID',
-    campaign_start_date  STRING  COMMENT '活动开始日期（yyyy-MM-dd）',
-    campaign_end_date    STRING  COMMENT '活动结束日期（yyyy-MM-dd）',
-
+    campaign_id          STRING COMMENT '活动ID'
+    ,campaign_start_date STRING COMMENT '活动开始日期（yyyy-MM-dd）'
+    ,campaign_end_date   STRING COMMENT '活动结束日期（yyyy-MM-dd）'
     -- 2. 报表采集日期字段（从日报接口date字段获取）
-    report_day_date      STRING  COMMENT '报表采集单日日期（yyyy-MM-dd）',
-
+    ,report_day_date     STRING COMMENT '报表采集单日日期（yyyy-MM-dd）'
     -- 3. 报表维度参数字段（固定值/请求参数）
-    by_position          STRING  COMMENT '位置维度值（固定为spot）',
-    by_region            STRING  COMMENT '地域维度值（level0/level1/level2）',
-    metrics              STRING  COMMENT '指标维度值（固定为all）',
-
+    ,by_position         STRING COMMENT '位置维度值（固定为spot）'
+    ,by_region           STRING COMMENT '地域维度值（level0/level1/level2）'
+    ,metrics             STRING COMMENT '指标维度值（固定为all）'
     -- 4. 秒针日报接口顶层指标字段
-    version              STRING  COMMENT '版本号（接口顶层字段）',
-    platform             STRING  COMMENT '平台类型（接口顶层字段，如pc）',
-    total_spot_num       STRING  COMMENT '总点位数量（接口顶层字段）',
-
+    ,version             STRING COMMENT '版本号（接口顶层字段）'
+    ,platform            STRING COMMENT '平台类型（接口顶层字段，如pc）'
+    ,total_spot_num      STRING COMMENT '总点位数量（接口顶层字段）'
     -- 5. 秒针日报接口items.attributes属性字段
-    audience             STRING  COMMENT '受众群体（items[*].attributes.audience）',
-    target_id            STRING  COMMENT '目标ID（接口无该字段，默认NULL）',
-    publisher_id         STRING  COMMENT '发布商ID（items[*].attributes.publisher_id）',
-    spot_id              STRING  COMMENT '点位ID（items[*].attributes.spot_id）',
-    keyword_id           STRING  COMMENT '关键词ID（接口无该字段，默认NULL）',
-    region_id            STRING  COMMENT '地域ID（items[*].attributes.region_id）',
-    universe             STRING  COMMENT '总体量（items[*].attributes.universe）',
-
+    ,audience            STRING COMMENT '受众群体（items[*].attributes.audience）'
+    ,target_id           STRING COMMENT '目标ID（接口无该字段，默认NULL）'
+    ,publisher_id        STRING COMMENT '发布商ID（items[*].attributes.publisher_id）'
+    ,spot_id             STRING COMMENT '点位ID（items[*].attributes.spot_id）'
+    ,keyword_id          STRING COMMENT '关键词ID（接口无该字段，默认NULL）'
+    ,region_id           STRING COMMENT '地域ID（items[*].attributes.region_id）'
+    ,universe            STRING COMMENT '总体量（items[*].attributes.universe）'
     -- 6. 秒针日报接口items.metrics核心指标字段
-    imp_acc              STRING  COMMENT '累计曝光量（items[*].metrics.imp_acc）',
-    clk_acc              STRING  COMMENT '累计点击量（items[*].metrics.clk_acc）',
-    uim_acc              STRING  COMMENT '累计独立曝光用户数（items[*].metrics.uim_acc）',
-    ucl_acc              STRING  COMMENT '累计独立点击用户数（items[*].metrics.ucl_acc）',
-    imp_day              STRING  COMMENT '当日曝光量（items[*].metrics.imp_day）',
-    clk_day              STRING  COMMENT '当日点击量（items[*].metrics.clk_day）',
-    uim_day              STRING  COMMENT '当日独立曝光用户数（items[*].metrics.uim_day）',
-    ucl_day              STRING  COMMENT '当日独立点击用户数（items[*].metrics.ucl_day）',
-    imp_avg_day          STRING  COMMENT '日均曝光量（items[*].metrics.imp_avg_day）',
-    clk_avg_day          STRING  COMMENT '日均点击量（items[*].metrics.clk_avg_day）',
-    uim_avg_day          STRING  COMMENT '日均独立曝光用户数（items[*].metrics.uim_avg_day）',
-    ucl_avg_day          STRING  COMMENT '日均独立点击用户数（items[*].metrics.ucl_avg_day）',
-
+    ,imp_acc             STRING COMMENT '累计曝光量（items[*].metrics.imp_acc）'
+    ,clk_acc             STRING COMMENT '累计点击量（items[*].metrics.clk_acc）'
+    ,uim_acc             STRING COMMENT '累计独立曝光用户数（items[*].metrics.uim_acc）'
+    ,ucl_acc             STRING COMMENT '累计独立点击用户数（items[*].metrics.ucl_acc）'
+    ,imp_day             STRING COMMENT '当日曝光量（items[*].metrics.imp_day）'
+    ,clk_day             STRING COMMENT '当日点击量（items[*].metrics.clk_day）'
+    ,uim_day             STRING COMMENT '当日独立曝光用户数（items[*].metrics.uim_day）'
+    ,ucl_day             STRING COMMENT '当日独立点击用户数（items[*].metrics.ucl_day）'
+    ,imp_avg_day         STRING COMMENT '日均曝光量（items[*].metrics.imp_avg_day）'
+    ,clk_avg_day         STRING COMMENT '日均点击量（items[*].metrics.clk_avg_day）'
+    ,uim_avg_day         STRING COMMENT '日均独立曝光用户数（items[*].metrics.uim_avg_day）'
+    ,ucl_avg_day         STRING COMMENT '日均独立点击用户数（items[*].metrics.ucl_avg_day）'
     -- 7. 秒针日报接口items.metrics时段指标字段
-    imp_acc_h00          STRING  COMMENT '累计曝光量（0点，映射items[*].metrics.imp_h00）',
-    imp_acc_h23          STRING  COMMENT '累计曝光量（23点，映射items[*].metrics.imp_h23）',
-    clk_acc_h00          STRING  COMMENT '累计点击量（0点，映射items[*].metrics.clk_h00）',
-    clk_acc_h23          STRING  COMMENT '累计点击量（23点，映射items[*].metrics.clk_h23）',
-
+    ,imp_acc_h00         STRING COMMENT '累计曝光量（0点，映射items[*].metrics.imp_h00）'
+    ,imp_acc_h23         STRING COMMENT '累计曝光量（23点，映射items[*].metrics.imp_h23）'
+    ,clk_acc_h00         STRING COMMENT '累计点击量（0点，映射items[*].metrics.clk_h00）'
+    ,clk_acc_h23         STRING COMMENT '累计点击量（23点，映射items[*].metrics.clk_h23）'
     -- 8. 原始数据与采集元信息
-    pre_parse_raw_text   STRING  COMMENT '秒针接口返回的原始文本数据',
-    etl_datetime         STRING  COMMENT '数据采集时间（yyyy-MM-dd HH:mm:ss）'
+    ,pre_parse_raw_text  STRING COMMENT '秒针接口返回的原始文本数据'
+    ,etl_datetime        STRING COMMENT '数据采集时间（yyyy-MM-dd HH:mm:ss）'
 )
 COMMENT '秒针MonitorTV基础展示报表API采集表'
-PARTITIONED BY (
-    dt  STRING  COMMENT '分区日期（yyyyMMdd，对应报表单日日期）'
+PARTITIONED BY 
+(
+    dt                   STRING COMMENT '分区日期（yyyyMMdd，对应报表单日日期）'
 )
 ;
-
 
 -- 创建秒针活动列表分区表
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_campaigns_list_api_df (
-    campaign_id BIGINT COMMENT '活动ID（主键）',
-    start_time STRING COMMENT '活动开始时间（yyyy-MM-dd）',
-    end_time STRING COMMENT '活动结束时间（yyyy-MM-dd）',
-    order_id STRING COMMENT '订单ID（可为空）',
-    scheduling STRING COMMENT '排期信息（可为空）',
-    campaign_name STRING COMMENT '活动名称',
-    description STRING COMMENT '活动描述',
-    created_time STRING COMMENT '活动创建时间（yyyy-MM-dd HH:mm:ss）',
-    advertiser STRING COMMENT '广告主名称',
-    agency STRING COMMENT '代理商名称',
-    brand STRING COMMENT '品牌名称',
-    status STRING COMMENT '活动状态（going-进行中/finished-已结束等）',
-    verify_version INT COMMENT '审核版本号',
-    total_net_id STRING COMMENT '总网络ID（可为空）',
-    calculate_type STRING COMMENT '计算类型（可为空）',
-    totalnet_version STRING COMMENT '总网络版本（可为空）',
-    sivt_region STRING COMMENT 'SIVT区域（可为空）',
-    target_list STRING COMMENT '目标列表（可为空，JSON格式）',
-    order_title STRING COMMENT '订单标题（可为空）',
-    pre_parse_raw_text STRING COMMENT '源解析文本',
-    etl_datetime STRING COMMENT '数据采集时间（yyyy-MM-dd HH:mm:ss）'
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_campaigns_list_api_df
+(
+    campaign_id         BIGINT COMMENT '活动ID（主键）'
+    ,start_time         STRING COMMENT '活动开始时间（yyyy-MM-dd）'
+    ,end_time           STRING COMMENT '活动结束时间（yyyy-MM-dd）'
+    ,order_id           STRING COMMENT '订单ID（可为空）'
+    ,scheduling         STRING COMMENT '排期信息（可为空）'
+    ,campaign_name      STRING COMMENT '活动名称'
+    ,description        STRING COMMENT '活动描述'
+    ,created_time       STRING COMMENT '活动创建时间（yyyy-MM-dd HH:mm:ss）'
+    ,advertiser         STRING COMMENT '广告主名称'
+    ,agency             STRING COMMENT '代理商名称'
+    ,brand              STRING COMMENT '品牌名称'
+    ,status             STRING COMMENT '活动状态（going-进行中/finished-已结束等）'
+    ,verify_version     INT COMMENT '审核版本号'
+    ,total_net_id       STRING COMMENT '总网络ID（可为空）'
+    ,calculate_type     STRING COMMENT '计算类型（可为空）'
+    ,totalnet_version   STRING COMMENT '总网络版本（可为空）'
+    ,sivt_region        STRING COMMENT 'SIVT区域（可为空）'
+    ,target_list        STRING COMMENT '目标列表（可为空，JSON格式）'
+    ,order_title        STRING COMMENT '订单标题（可为空）'
+    ,pre_parse_raw_text STRING COMMENT '源解析文本'
+    ,etl_datetime       STRING COMMENT '数据采集时间（yyyy-MM-dd HH:mm:ss）'
 )
-comment '秒针TVMonitor活动列表原始数据，按'
-PARTITIONED BY (
-    dt STRING COMMENT '采集日期分区'
+COMMENT '秒针TVMonitor活动列表原始数据，按'
+PARTITIONED BY 
+(
+    dt                  STRING COMMENT '采集日期分区'
 )
 ;
 
-
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di (
-    campaign_id          STRING COMMENT '活动ID',
-    start_date           STRING COMMENT '活动开始日期',
-    end_date             STRING COMMENT '活动结束日期',
-    date                 STRING COMMENT '数据日期',
-    version              STRING COMMENT '版本号',
-    platform             STRING COMMENT '投放平台',
-    total_spot_num       STRING COMMENT '本次请求涉及的spot个数总量，使用limit分页时应参考该指标，对于输入的limit值，M小于该指标且M+N不超过该指标即可。',
-    audience             STRING COMMENT '报告受众人群维度，overall（所有网民）或stable（稳定人群）或target（目标人群）。',
-    target_id            STRING COMMENT '目标人群ID，当by_audience=target时可用',
-    publisher_id         STRING COMMENT '媒体ID，当by_position=publisher/spot/keyword时可用',
-    spot_id              STRING COMMENT '点位ID，当by_position=spot/keyword时可用',
-    keyword_id           STRING COMMENT '关键词ID，当by_position=keyword时可用',
-    region_id            STRING COMMENT '地域ID',
-    universe             STRING COMMENT '',
-    imp_acc              STRING COMMENT '累计曝光，metrics=acc/all时可用',
-    clk_acc              STRING COMMENT '累计点击，metrics=acc/all时可用',
-    uim_acc              STRING COMMENT '累计UV，metrics=acc/all时可用',
-    ucl_acc              STRING COMMENT '累计Clicker，metrics=acc/all时可用',
-    imp_day              STRING COMMENT '当日曝光，metrics=day/all时可用，by_audience=target时无效',
-    clk_day              STRING COMMENT '当日点击，metrics=day/all时可用，by_audience=target时无效',
-    uim_day              STRING COMMENT '当日UV，metrics=day/all时可用，by_audience=target时无效',
-    ucl_day              STRING COMMENT '当日Clicker，metrics=day/all时可用，by_audience=target时无效',
-    imp_avg_day          STRING COMMENT '日均曝光，metrics=avg_day/all时可用',
-    clk_avg_day          STRING COMMENT '日均点击，metrics=avg_day/all时可用',
-    uim_avg_day          STRING COMMENT '日均UV，metrics=avg_day/all时可用',
-    ucl_avg_day          STRING COMMENT '日均Clicker，metrics=avg_day/all时可用',
-    imp_acc_h00          STRING COMMENT '00点累计曝光，metrics=acc_hrs/all时可用',
-    imp_acc_h23          STRING COMMENT '23点累计曝光，metrics=acc_hrs/all时可用',
-    clk_acc_h00          STRING COMMENT '00点累计点击，metrics=acc_hrs/all时可用',
-    clk_acc_h23          STRING COMMENT '23点累计点击，metrics=acc_hrs/all时可用',
-    pre_parse_raw_text STRING COMMENT '源解析文本',
-    etl_datetime             STRING COMMENT '数据落地时间'
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di
+(
+    campaign_id         STRING COMMENT '活动ID'
+    ,start_date         STRING COMMENT '活动开始日期'
+    ,end_date           STRING COMMENT '活动结束日期'
+    ,date               STRING COMMENT '数据日期'
+    ,version            STRING COMMENT '版本号'
+    ,platform           STRING COMMENT '投放平台'
+    ,total_spot_num     STRING COMMENT '本次请求涉及的spot个数总量，使用limit分页时应参考该指标，对于输入的limit值，M小于该指标且M+N不超过该指标即可。'
+    ,audience           STRING COMMENT '报告受众人群维度，overall（所有网民）或stable（稳定人群）或target（目标人群）。'
+    ,target_id          STRING COMMENT '目标人群ID，当by_audience=target时可用'
+    ,publisher_id       STRING COMMENT '媒体ID，当by_position=publisher/spot/keyword时可用'
+    ,spot_id            STRING COMMENT '点位ID，当by_position=spot/keyword时可用'
+    ,keyword_id         STRING COMMENT '关键词ID，当by_position=keyword时可用'
+    ,region_id          STRING COMMENT '地域ID'
+    ,universe           STRING COMMENT ''
+    ,imp_acc            STRING COMMENT '累计曝光，metrics=acc/all时可用'
+    ,clk_acc            STRING COMMENT '累计点击，metrics=acc/all时可用'
+    ,uim_acc            STRING COMMENT '累计UV，metrics=acc/all时可用'
+    ,ucl_acc            STRING COMMENT '累计Clicker，metrics=acc/all时可用'
+    ,imp_day            STRING COMMENT '当日曝光，metrics=day/all时可用，by_audience=target时无效'
+    ,clk_day            STRING COMMENT '当日点击，metrics=day/all时可用，by_audience=target时无效'
+    ,uim_day            STRING COMMENT '当日UV，metrics=day/all时可用，by_audience=target时无效'
+    ,ucl_day            STRING COMMENT '当日Clicker，metrics=day/all时可用，by_audience=target时无效'
+    ,imp_avg_day        STRING COMMENT '日均曝光，metrics=avg_day/all时可用'
+    ,clk_avg_day        STRING COMMENT '日均点击，metrics=avg_day/all时可用'
+    ,uim_avg_day        STRING COMMENT '日均UV，metrics=avg_day/all时可用'
+    ,ucl_avg_day        STRING COMMENT '日均Clicker，metrics=avg_day/all时可用'
+    ,imp_acc_h00        STRING COMMENT '00点累计曝光，metrics=acc_hrs/all时可用'
+    ,imp_acc_h23        STRING COMMENT '23点累计曝光，metrics=acc_hrs/all时可用'
+    ,clk_acc_h00        STRING COMMENT '00点累计点击，metrics=acc_hrs/all时可用'
+    ,clk_acc_h23        STRING COMMENT '23点累计点击，metrics=acc_hrs/all时可用'
+    ,pre_parse_raw_text STRING COMMENT '源解析文本'
+    ,etl_datetime       STRING COMMENT '数据落地时间'
 )
 COMMENT '秒针投放日报数据表（basic show接口）'
-PARTITIONED BY (dt STRING COMMENT '分区yyyyMMdd')
+PARTITIONED BY 
+(
+    dt                  STRING COMMENT '分区yyyyMMdd'
+)
 ;
 
-
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.dim_fiscal_date (
-    FSY_ID STRING COMMENT '主键ID',
-    FSY_CODE STRING COMMENT '财周编码（年份+周数，如20101代表2010年第1周）',
-    FSY_YEAR STRING COMMENT '财年',
-    FSY_HALF_YEAR STRING COMMENT '财半年（1：上半年，2：下半年）',
-    FSY_QUARTER STRING COMMENT '财季度（1-4）',
-    FSY_PERIOD STRING COMMENT '财期/月周期（1-12）',
-    FSY_WEEK STRING COMMENT '财周（1-53）',
-    FSY_FROM_DT STRING COMMENT '财周开始日期（格式：yyyy-MM-dd）',
-    FSY_TO_DT STRING COMMENT '财周结束日期（格式：yyyy-MM-dd）',
-    FSY_DT STRING COMMENT '财周内具体日期（格式：yyyy-MM-dd，扩展每一天）'
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.dim_fiscal_date
+(
+    FSY_ID         STRING COMMENT '主键ID'
+    ,FSY_CODE      STRING COMMENT '财周编码（年份+周数，如20101代表2010年第1周）'
+    ,FSY_YEAR      STRING COMMENT '财年'
+    ,FSY_HALF_YEAR STRING COMMENT '财半年（1：上半年，2：下半年）'
+    ,FSY_QUARTER   STRING COMMENT '财季度（1-4）'
+    ,FSY_PERIOD    STRING COMMENT '财期/月周期（1-12）'
+    ,FSY_WEEK      STRING COMMENT '财周（1-53）'
+    ,FSY_FROM_DT   STRING COMMENT '财周开始日期（格式：yyyy-MM-dd）'
+    ,FSY_TO_DT     STRING COMMENT '财周结束日期（格式：yyyy-MM-dd）'
+    ,FSY_DT        STRING COMMENT '财周内具体日期（格式：yyyy-MM-dd，扩展每一天）'
 )
 COMMENT '财周日历表-含日期明细版本'
-PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
+PARTITIONED BY 
+(
+    dt             STRING COMMENT '分区日期(yyyyMMdd)'
+)
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_spots_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_spots_api_df
+(
     -- 一、接口调用参数（核心）
-    request_campaign_id STRING COMMENT '调用list_spots时传入的campaign_id（请求参数）',
-
+    request_campaign_id  STRING COMMENT '调用list_spots时传入的campaign_id（请求参数）'
     -- 二、接口返回所有字段（嵌套字段序列化为JSON字符串）
-    CAGUID STRING COMMENT '活动全局唯一标识（示例：空字符串）',
-    GUID STRING COMMENT '全局唯一标识（示例：空字符串）',
-    adposition_type STRING COMMENT '广告位类型（示例：Banner）',
-    area_size STRING COMMENT '投放量级（示例：空字符串）',
-    channel_name STRING COMMENT '渠道名称（示例：F18-30）',
-    customize STRING COMMENT '自定义字段（示例：空字符串）',
-    description STRING COMMENT '广告位描述（示例：空字符串）',
-    landing_page STRING COMMENT '落地页地址（示例：空字符串）',
-    market STRING COMMENT '市场类型（示例：空字符串）',
-    placement_name STRING COMMENT '投放位置名称（示例：ALL_焦点图_shan KV）',
-    publisher_id STRING COMMENT '发布方ID（示例：1）',
-    publisher_name STRING COMMENT '发布方名称（示例：哔哩哔哩）',
-    report_metrics STRING COMMENT '报表指标（示例：空字符串）',
-    spot_id STRING COMMENT '广告位ID（示例：133409879）',
-    spot_id_str STRING COMMENT '广告位字符串ID（示例：91m0F）',
-    spot_plan STRING COMMENT '广告位计划（空数组，序列化为"[]"）',
-    tracking_tags STRING COMMENT '追踪标签（嵌套数组，序列化为JSON字符串，示例：[{"impression_url":"https://xxx"},{"click_url":"https://xxx"}]）',
-    vending_model STRING COMMENT '售卖模式（示例：常规购买-常规投放）',
-
+    ,CAGUID              STRING COMMENT '活动全局唯一标识（示例：空字符串）'
+    ,GUID                STRING COMMENT '全局唯一标识（示例：空字符串）'
+    ,adposition_type     STRING COMMENT '广告位类型（示例：Banner）'
+    ,area_size           STRING COMMENT '投放量级（示例：空字符串）'
+    ,channel_name        STRING COMMENT '渠道名称（示例：F18-30）'
+    ,customize           STRING COMMENT '自定义字段（示例：空字符串）'
+    ,description         STRING COMMENT '广告位描述（示例：空字符串）'
+    ,landing_page        STRING COMMENT '落地页地址（示例：空字符串）'
+    ,market              STRING COMMENT '市场类型（示例：空字符串）'
+    ,placement_name      STRING COMMENT '投放位置名称（示例：ALL_焦点图_shan KV）'
+    ,publisher_id        STRING COMMENT '发布方ID（示例：1）'
+    ,publisher_name      STRING COMMENT '发布方名称（示例：哔哩哔哩）'
+    ,report_metrics      STRING COMMENT '报表指标（示例：空字符串）'
+    ,spot_id             STRING COMMENT '广告位ID（示例：133409879）'
+    ,spot_id_str         STRING COMMENT '广告位字符串ID（示例：91m0F）'
+    ,spot_plan           STRING COMMENT '广告位计划（空数组，序列化为"[]"）'
+    ,tracking_tags       STRING COMMENT '追踪标签（嵌套数组，序列化为JSON字符串，示例：[{"impression_url":"https://xxx"},{"click_url":"https://xxx"}]）'
+    ,vending_model       STRING COMMENT '售卖模式（示例：常规购买-常规投放）'
     -- 三、补充溯源字段
-    pre_parse_raw_text STRING COMMENT '单条广告位数据的原始JSON字符串，用于问题追溯',
-    etl_datetime STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
+    ,pre_parse_raw_text  STRING COMMENT '单条广告位数据的原始JSON字符串，用于问题追溯'
+    ,etl_datetime        STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
 )
 COMMENT '秒针活动广告位信息表（CMS campaigns list_spots接口）- 匹配campaign_id=2493188返回值'
-PARTITIONED BY (dt STRING COMMENT '分区日期（格式：yyyyMMdd）')
+PARTITIONED BY 
+(
+    dt                   STRING COMMENT '分区日期（格式：yyyyMMdd）'
+)
 ;
 
-
-
-
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df
+(
     -- 一、接口调用参数（核心双参数）
-    request_campaign_id STRING COMMENT '调用show_spot时传入的campaign_id（请求参数）',
-    request_spot_id_str STRING COMMENT '调用show_spot时传入的spot_id_str（请求参数）',
-
+    request_campaign_id  STRING COMMENT '调用show_spot时传入的campaign_id（请求参数）'
+    ,request_spot_id_str STRING COMMENT '调用show_spot时传入的spot_id_str（请求参数）'
     -- 二、接口返回所有字段
-    publisher_id STRING COMMENT '发布方ID（数字型，示例：1）',
-    channel_name STRING COMMENT '渠道名称（示例：F18-30 人群包）',
-    publisher_name STRING COMMENT '发布方名称（示例：哔哩哔哩）',
-    spot_id STRING COMMENT '广告位ID（示例：133409876）',
-    GUID STRING COMMENT '全局唯一标识（示例：空字符串）',
-    description STRING COMMENT '广告位描述（示例：空字符串）',
-    CAGUID STRING COMMENT '活动全局唯一标识（示例：空字符串）',
-    customize STRING COMMENT '自定义字段（示例：空字符串）',
-    report_metrics STRING COMMENT '报表指标（示例：空字符串）',
-    market STRING COMMENT '市场类型（示例：空字符串）',
-    vending_model STRING COMMENT '售卖模式（示例：常规购买-常规投放）',
-    area_size STRING COMMENT '投放量级（示例：null）',
-    linked_siteid STRING COMMENT '关联站点ID（示例：null）',
-    placement_name STRING COMMENT '投放位置名称（示例：ALL_信息流_KOL3）',
-    spot_id_str STRING COMMENT '广告位字符串ID（示例：91m0C）',
-    keyword STRING COMMENT '广告位字符串ID（示例：91m0C）',
-    adposition_type STRING COMMENT '广告位类型（示例：信息流）',
-
+    ,publisher_id        STRING COMMENT '发布方ID（数字型，示例：1）'
+    ,channel_name        STRING COMMENT '渠道名称（示例：F18-30 人群包）'
+    ,publisher_name      STRING COMMENT '发布方名称（示例：哔哩哔哩）'
+    ,spot_id             STRING COMMENT '广告位ID（示例：133409876）'
+    ,GUID                STRING COMMENT '全局唯一标识（示例：空字符串）'
+    ,description         STRING COMMENT '广告位描述（示例：空字符串）'
+    ,CAGUID              STRING COMMENT '活动全局唯一标识（示例：空字符串）'
+    ,customize           STRING COMMENT '自定义字段（示例：空字符串）'
+    ,report_metrics      STRING COMMENT '报表指标（示例：空字符串）'
+    ,market              STRING COMMENT '市场类型（示例：空字符串）'
+    ,vending_model       STRING COMMENT '售卖模式（示例：常规购买-常规投放）'
+    ,area_size           STRING COMMENT '投放量级（示例：null）'
+    ,linked_siteid       STRING COMMENT '关联站点ID（示例：null）'
+    ,placement_name      STRING COMMENT '投放位置名称（示例：ALL_信息流_KOL3）'
+    ,spot_id_str         STRING COMMENT '广告位字符串ID（示例：91m0C）'
+    ,keyword             STRING COMMENT '广告位字符串ID（示例：91m0C）'
+    ,adposition_type     STRING COMMENT '广告位类型（示例：信息流）'
     -- 三、补充溯源字段
-    pre_parse_raw_text STRING COMMENT '单条广告位详情的原始JSON字符串，用于问题追溯',
-    etl_datetime STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
+    ,pre_parse_raw_text  STRING COMMENT '单条广告位详情的原始JSON字符串，用于问题追溯'
+    ,etl_datetime        STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
 )
 COMMENT '秒针活动点位详情表'
-PARTITIONED BY (dt STRING COMMENT '分区日期（格式：yyyyMMdd）')
+PARTITIONED BY 
+(
+    dt                   STRING COMMENT '分区日期（格式：yyyyMMdd）'
+)
 ;
 
-
-
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_targets_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_targets_api_df
+(
     -- 一、接口调用参数（核心）
-    request_campaign_id STRING COMMENT '调用list_targets时传入的campaign_id（请求参数）',
-
+    request_campaign_id  STRING COMMENT '调用list_targets时传入的campaign_id（请求参数）'
     -- 二、接口返回所有字段
-    panel_id STRING COMMENT '面板ID（示例：Panel-PanelPool-PC-MB-PM-merge_Region-000000000000000000000008-City337.new5-City337.new5-City337.new5-merge_PanelMeta-pmoFormal.2024H1Universe_20250214193138）',
-    target_id STRING COMMENT '目标人群ID（示例：705056）',
-    target_name STRING COMMENT '目标人群名称（示例：F18-30）',
-
+    ,panel_id            STRING COMMENT '面板ID（示例：Panel-PanelPool-PC-MB-PM-merge_Region-000000000000000000000008-City337.new5-City337.new5-City337.new5-merge_PanelMeta-pmoFormal.2024H1Universe_20250214193138）'
+    ,target_id           STRING COMMENT '目标人群ID（示例：705056）'
+    ,target_name         STRING COMMENT '目标人群名称（示例：F18-30）'
     -- 三、补充溯源字段
-    pre_parse_raw_text STRING COMMENT '单条目标数据的原始JSON字符串，用于问题追溯',
-    etl_datetime STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
+    ,pre_parse_raw_text  STRING COMMENT '单条目标数据的原始JSON字符串，用于问题追溯'
+    ,etl_datetime        STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
 )
 COMMENT '秒针活动目标人群表'
-PARTITIONED BY (dt STRING COMMENT '分区日期（格式：yyyyMMdd）')
+PARTITIONED BY 
+(
+    dt                   STRING COMMENT '分区日期（格式：yyyyMMdd）'
+)
 ;
 
-
-
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df
+(
     -- 接口返回核心字段
-    level STRING COMMENT '区域层级（数字型，如0）',
-    parent_id STRING COMMENT '父级区域ID（空字符串表示无父级）',
-    region_id STRING COMMENT '区域唯一ID（如000000000000000000000000）',
-    region_name STRING COMMENT '区域名称（如Global、Dongying）',
-
+    level               STRING COMMENT '区域层级（数字型，如0）'
+    ,parent_id          STRING COMMENT '父级区域ID（空字符串表示无父级）'
+    ,region_id          STRING COMMENT '区域唯一ID（如000000000000000000000000）'
+    ,region_name        STRING COMMENT '区域名称（如Global、Dongying）'
     -- 补充溯源字段
-    pre_parse_raw_text STRING COMMENT '单条区域数据的原始JSON字符串',
-    etl_datetime STRING COMMENT '数据落地时间（yyyy-MM-dd HH:mm:ss）'
+    ,pre_parse_raw_text STRING COMMENT '单条区域数据的原始JSON字符串'
+    ,etl_datetime       STRING COMMENT '数据落地时间（yyyy-MM-dd HH:mm:ss）'
 )
 COMMENT '秒针地区列表表'
-PARTITIONED BY (dt STRING COMMENT '分区日期（yyyyMMdd）')
+PARTITIONED BY 
+(
+    dt                  STRING COMMENT '分区日期（yyyyMMdd）'
+)
 ;
 
-
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_list_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_list_api_df
+(
     -- 一、接口调用参数（核心）
-    request_campaign_id STRING COMMENT '调用spot/list时传入的campaign_id（请求参数）',
-
+    request_campaign_id  STRING COMMENT '调用spot/list时传入的campaign_id（请求参数）'
     -- 二、接口result数组内所有字段
-    spid_str STRING COMMENT '点位标识字符串',
-    caid STRING COMMENT '广告活动ID（数字型）',
-    created_time STRING COMMENT '点位创建时间（2026-01-29 15:28:10.0）',
-    placement STRING COMMENT '投放位置',
-    channel_name STRING COMMENT '渠道名称',
-    pub_id STRING COMMENT '发布方ID',
-    publisher STRING COMMENT '发布方名称（如小米）',
-    description STRING COMMENT '点位描述',
-    ad_type STRING COMMENT '广告类型（如开机视频）',
-    category STRING COMMENT '广告分类',
-    brand STRING COMMENT '品牌名称',
-    product STRING COMMENT '产品名称',
-    copyname STRING COMMENT '文案名称',
-    buyingregular STRING COMMENT '采购规则',
-    buyingsub STRING COMMENT '采购子项',
-    mediasub STRING COMMENT '媒体子项',
-    generalbuying STRING COMMENT '通用采购类型',
-    spottype STRING COMMENT '点位类型',
-    spotplan STRING COMMENT '点位计划',
-    spot_plan_record_id STRING COMMENT '点位计划记录ID',
-    caguid STRING COMMENT '活动唯一标识',
-    celebrity_stids STRING COMMENT '明星ID列表',
-    playinfo_stids STRING COMMENT '播放信息ID列表',
-    spots_display_type STRING COMMENT '点位展示类型',
-    purchasetype STRING COMMENT '采购类型',
-    playpurchasetype STRING COMMENT '播放采购类型',
-    mm_channe_id STRING COMMENT 'MM渠道ID',
-    play_info STRING COMMENT '播放信息',
-    tag_place STRING COMMENT '标签位置（如开始）',
-    multi_tag STRING COMMENT '多标签标识（如1）',
-
+    ,spid_str            STRING COMMENT '点位标识字符串'
+    ,caid                STRING COMMENT '广告活动ID（数字型）'
+    ,created_time        STRING COMMENT '点位创建时间（2026-01-29 15:28:10.0）'
+    ,placement           STRING COMMENT '投放位置'
+    ,channel_name        STRING COMMENT '渠道名称'
+    ,pub_id              STRING COMMENT '发布方ID'
+    ,publisher           STRING COMMENT '发布方名称（如小米）'
+    ,description         STRING COMMENT '点位描述'
+    ,ad_type             STRING COMMENT '广告类型（如开机视频）'
+    ,category            STRING COMMENT '广告分类'
+    ,brand               STRING COMMENT '品牌名称'
+    ,product             STRING COMMENT '产品名称'
+    ,copyname            STRING COMMENT '文案名称'
+    ,buyingregular       STRING COMMENT '采购规则'
+    ,buyingsub           STRING COMMENT '采购子项'
+    ,mediasub            STRING COMMENT '媒体子项'
+    ,generalbuying       STRING COMMENT '通用采购类型'
+    ,spottype            STRING COMMENT '点位类型'
+    ,spotplan            STRING COMMENT '点位计划'
+    ,spot_plan_record_id STRING COMMENT '点位计划记录ID'
+    ,caguid              STRING COMMENT '活动唯一标识'
+    ,celebrity_stids     STRING COMMENT '明星ID列表'
+    ,playinfo_stids      STRING COMMENT '播放信息ID列表'
+    ,spots_display_type  STRING COMMENT '点位展示类型'
+    ,purchasetype        STRING COMMENT '采购类型'
+    ,playpurchasetype    STRING COMMENT '播放采购类型'
+    ,mm_channe_id        STRING COMMENT 'MM渠道ID'
+    ,play_info           STRING COMMENT '播放信息'
+    ,tag_place           STRING COMMENT '标签位置（如开始）'
+    ,multi_tag           STRING COMMENT '多标签标识（如1）'
     -- 三、补充溯源字段
-    pre_parse_raw_text STRING COMMENT 'result数组内单条点位的原始JSON数据',
-    etl_datetime STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
+    ,pre_parse_raw_text  STRING COMMENT 'result数组内单条点位的原始JSON数据'
+    ,etl_datetime        STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
 )
 COMMENT '秒针TV监测广告点位列表'
-PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
+PARTITIONED BY 
+(
+    dt                   STRING COMMENT '分区日期(yyyyMMdd)'
+)
 ;
 
-
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df
+(
     -- 一、接口调用参数（核心）
-    request_campaign_id STRING COMMENT '调用spot/info时传入的campaign_id（请求参数）',
-    request_spid_str STRING COMMENT '调用spot/info时传入的spid_str（请求参数）',
-
+    request_campaign_id  STRING COMMENT '调用spot/info时传入的campaign_id（请求参数）'
+    ,request_spid_str    STRING COMMENT '调用spot/info时传入的spid_str（请求参数）'
     -- 二、接口result节点所有字段
-    result_spid_str STRING COMMENT '接口返回的点位标识字符串（result顶层字段）',
-    caid STRING COMMENT '广告活动ID（数字型）',
-    created_time STRING COMMENT '点位创建时间（2026-01-29 15:28:10.0）',
-    placement STRING COMMENT '投放位置',
-    channel_name STRING COMMENT '渠道名称',
-    pub_id STRING COMMENT '发布方ID',
-    publisher STRING COMMENT '发布方名称（如小米）',
-    description STRING COMMENT '点位描述',
-    ad_type STRING COMMENT '广告类型（如开机视频）',
-    category STRING COMMENT '广告分类',
-    brand STRING COMMENT '品牌名称',
-    product STRING COMMENT '产品名称',
-    copyname STRING COMMENT '文案名称',
-    buyingregular STRING COMMENT '采购规则',
-    buyingsub STRING COMMENT '采购子项',
-    mediasub STRING COMMENT '媒体子项',
-    generalbuying STRING COMMENT '通用采购类型',
-    spottype STRING COMMENT '点位类型',
-    spotplan STRING COMMENT '点位计划',
-    spot_plan_record_id STRING COMMENT '点位计划记录ID',
-    caguid STRING COMMENT '活动唯一标识',
-    celebrity_stids STRING COMMENT '明星ID列表',
-    playinfo_stids STRING COMMENT '播放信息ID列表',
-    spots_display_type STRING COMMENT '点位展示类型',
-    purchasetype STRING COMMENT '采购类型',
-    playpurchasetype STRING COMMENT '播放采购类型',
-    mm_channe_id STRING COMMENT 'MM渠道ID',
-    play_info STRING COMMENT '播放信息',
-    tag_place STRING COMMENT '标签位置（如开始）',
-    multi_tag STRING COMMENT '多标签标识（如1）',
-
+    ,result_spid_str     STRING COMMENT '接口返回的点位标识字符串（result顶层字段）'
+    ,caid                STRING COMMENT '广告活动ID（数字型）'
+    ,created_time        STRING COMMENT '点位创建时间（2026-01-29 15:28:10.0）'
+    ,placement           STRING COMMENT '投放位置'
+    ,channel_name        STRING COMMENT '渠道名称'
+    ,pub_id              STRING COMMENT '发布方ID'
+    ,publisher           STRING COMMENT '发布方名称（如小米）'
+    ,description         STRING COMMENT '点位描述'
+    ,ad_type             STRING COMMENT '广告类型（如开机视频）'
+    ,category            STRING COMMENT '广告分类'
+    ,brand               STRING COMMENT '品牌名称'
+    ,product             STRING COMMENT '产品名称'
+    ,copyname            STRING COMMENT '文案名称'
+    ,buyingregular       STRING COMMENT '采购规则'
+    ,buyingsub           STRING COMMENT '采购子项'
+    ,mediasub            STRING COMMENT '媒体子项'
+    ,generalbuying       STRING COMMENT '通用采购类型'
+    ,spottype            STRING COMMENT '点位类型'
+    ,spotplan            STRING COMMENT '点位计划'
+    ,spot_plan_record_id STRING COMMENT '点位计划记录ID'
+    ,caguid              STRING COMMENT '活动唯一标识'
+    ,celebrity_stids     STRING COMMENT '明星ID列表'
+    ,playinfo_stids      STRING COMMENT '播放信息ID列表'
+    ,spots_display_type  STRING COMMENT '点位展示类型'
+    ,purchasetype        STRING COMMENT '采购类型'
+    ,playpurchasetype    STRING COMMENT '播放采购类型'
+    ,mm_channe_id        STRING COMMENT 'MM渠道ID'
+    ,play_info           STRING COMMENT '播放信息'
+    ,tag_place           STRING COMMENT '标签位置（如开始）'
+    ,multi_tag           STRING COMMENT '多标签标识（如1）'
     -- 三、补充溯源字段
-    pre_parse_raw_text STRING COMMENT '接口result节点原始返回数据(JSON)',
-    etl_datetime STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
+    ,pre_parse_raw_text  STRING COMMENT '接口result节点原始返回数据(JSON)'
+    ,etl_datetime        STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
 )
 COMMENT '秒针TV监测广告点位详情表'
-PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
+PARTITIONED BY 
+(
+    dt                   STRING COMMENT '分区日期(yyyyMMdd)'
+)
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_target_info_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_target_info_api_df
+(
     -- 一、接口调用参数（仅campaign_id）
-    request_campaign_id STRING COMMENT '调用接口时传入的campaign_id（请求参数）',
-
+    request_campaign_id  STRING COMMENT '调用接口时传入的campaign_id（请求参数）'
     -- 二、接口result节点所有字段
-    result_campaign_id STRING COMMENT '接口返回的campaign_id（result顶层字段）',
-    target_display STRING COMMENT '目标人群展示文本（result.target数组内字段）',
-    update_time STRING COMMENT '目标信息更新时间（result.target数组内字段）',
-    target_name STRING COMMENT '目标人群名称（result.target数组内字段）',
-    target_id STRING COMMENT '目标人群ID（result.target数组内字段）',
-
+    ,result_campaign_id  STRING COMMENT '接口返回的campaign_id（result顶层字段）'
+    ,target_display      STRING COMMENT '目标人群展示文本（result.target数组内字段）'
+    ,update_time         STRING COMMENT '目标信息更新时间（result.target数组内字段）'
+    ,target_name         STRING COMMENT '目标人群名称（result.target数组内字段）'
+    ,target_id           STRING COMMENT '目标人群ID（result.target数组内字段）'
     -- 三、补充溯源字段
-    pre_parse_raw_text STRING COMMENT '接口result节点原始返回数据(JSON)',
-    etl_datetime STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
+    ,pre_parse_raw_text  STRING COMMENT '接口result节点原始返回数据(JSON)'
+    ,etl_datetime        STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
 )
 COMMENT '秒针TV监测活动目标信息表'
-PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
+PARTITIONED BY 
+(
+    dt                   STRING COMMENT '分区日期(yyyyMMdd)'
+)
 ;
-
-
 
 -- OSS 表结构
-
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_monthly_report_oss_di (
-    fiscal_year           STRING COMMENT '财年（如FY26）',
-    fiscal_period         STRING COMMENT '财期（如P1）',
-    start_date            STRING COMMENT '统计开始日期（格式：2025/6/29）',
-    end_date              STRING COMMENT '统计结束日期（格式：2025/8/2）',
-    campaign_id           STRING COMMENT '营销活动ID',
-    campaign_name         STRING COMMENT '营销活动名称',
-    channel               STRING COMMENT '投放渠道（All, OLV, OTV等）',
-    target_audience_num   STRING COMMENT 'TA目标总人数',
-    region                STRING COMMENT '投放区域（All, Wuhan, Qingdao等）',
-    partner               STRING COMMENT '合作方（All, IQIYI, Tencent等）',
-    platform              STRING COMMENT '投放平台（All, PC, MOB, OTT等）',
-    spot                  STRING COMMENT '投放点位（All, billboard等）',
-    impression            STRING COMMENT '该时间段内IMP数量',
-    click                 STRING COMMENT '该时间段内CLK数量',
-    reach_ttl             STRING COMMENT '该时间段内到达人群总数',
-    reach_01              STRING COMMENT '该时间段内到达1次人群总数',
-    reach_02              STRING COMMENT '该时间段内到达2次人群总数',
-    reach_03              STRING COMMENT '该时间段内到达3次人群总数',
-    reach_04              STRING COMMENT '该时间段内到达4次人群总数',
-    reach_05              STRING COMMENT '该时间段内到达5次人群总数',
-    reach_06              STRING COMMENT '该时间段内到达6次人群总数',
-    reach_07              STRING COMMENT '该时间段内到达7次人群总数',
-    reach_08              STRING COMMENT '该时间段内到达8次人群总数',
-    reach_09              STRING COMMENT '该时间段内到达9次人群总数',
-    reach_10              STRING COMMENT '该时间段内到达10次人群总数',
-    reach_10_plus         STRING COMMENT '该时间段内到达超过10次人群总数',
-    reach_ta_ttl          STRING COMMENT '该时间段内相交目标TA到达人群总数',
-    reach_ta_01           STRING COMMENT '该时间段内相交目标TA到达1次人群总数',
-    reach_ta_02           STRING COMMENT '该时间段内相交目标TA到达2次人群总数',
-    reach_ta_03           STRING COMMENT '该时间段内相交目标TA到达3次人群总数',
-    reach_ta_04           STRING COMMENT '该时间段内相交目标TA到达4次人群总数',
-    reach_ta_05           STRING COMMENT '该时间段内相交目标TA到达5次人群总数',
-    reach_ta_06           STRING COMMENT '该时间段内相交目标TA到达6次人群总数',
-    reach_ta_07           STRING COMMENT '该时间段内相交目标TA到达7次人群总数',
-    reach_ta_08           STRING COMMENT '该时间段内相交目标TA到达8次人群总数',
-    reach_ta_09           STRING COMMENT '该时间段内相交目标TA到达9次人群总数',
-    reach_ta_10           STRING COMMENT '该时间段内相交目标TA到达10次人群总数',
-    reach_ta_10_plus      STRING COMMENT '该时间段内相交目标TA到达超过10次人群总数'
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_monthly_report_oss_di
+(
+    fiscal_year          STRING COMMENT '财年（如FY26）'
+    ,fiscal_period       STRING COMMENT '财期（如P1）'
+    ,start_date          STRING COMMENT '统计开始日期（格式：2025/6/29）'
+    ,end_date            STRING COMMENT '统计结束日期（格式：2025/8/2）'
+    ,campaign_id         STRING COMMENT '营销活动ID'
+    ,campaign_name       STRING COMMENT '营销活动名称'
+    ,channel             STRING COMMENT '投放渠道（All, OLV, OTV等）'
+    ,target_audience_num STRING COMMENT 'TA目标总人数'
+    ,region              STRING COMMENT '投放区域（All, Wuhan, Qingdao等）'
+    ,partner             STRING COMMENT '合作方（All, IQIYI, Tencent等）'
+    ,platform            STRING COMMENT '投放平台（All, PC, MOB, OTT等）'
+    ,spot                STRING COMMENT '投放点位（All, billboard等）'
+    ,impression          STRING COMMENT '该时间段内IMP数量'
+    ,click               STRING COMMENT '该时间段内CLK数量'
+    ,reach_ttl           STRING COMMENT '该时间段内到达人群总数'
+    ,reach_01            STRING COMMENT '该时间段内到达1次人群总数'
+    ,reach_02            STRING COMMENT '该时间段内到达2次人群总数'
+    ,reach_03            STRING COMMENT '该时间段内到达3次人群总数'
+    ,reach_04            STRING COMMENT '该时间段内到达4次人群总数'
+    ,reach_05            STRING COMMENT '该时间段内到达5次人群总数'
+    ,reach_06            STRING COMMENT '该时间段内到达6次人群总数'
+    ,reach_07            STRING COMMENT '该时间段内到达7次人群总数'
+    ,reach_08            STRING COMMENT '该时间段内到达8次人群总数'
+    ,reach_09            STRING COMMENT '该时间段内到达9次人群总数'
+    ,reach_10            STRING COMMENT '该时间段内到达10次人群总数'
+    ,reach_10_plus       STRING COMMENT '该时间段内到达超过10次人群总数'
+    ,reach_ta_ttl        STRING COMMENT '该时间段内相交目标TA到达人群总数'
+    ,reach_ta_01         STRING COMMENT '该时间段内相交目标TA到达1次人群总数'
+    ,reach_ta_02         STRING COMMENT '该时间段内相交目标TA到达2次人群总数'
+    ,reach_ta_03         STRING COMMENT '该时间段内相交目标TA到达3次人群总数'
+    ,reach_ta_04         STRING COMMENT '该时间段内相交目标TA到达4次人群总数'
+    ,reach_ta_05         STRING COMMENT '该时间段内相交目标TA到达5次人群总数'
+    ,reach_ta_06         STRING COMMENT '该时间段内相交目标TA到达6次人群总数'
+    ,reach_ta_07         STRING COMMENT '该时间段内相交目标TA到达7次人群总数'
+    ,reach_ta_08         STRING COMMENT '该时间段内相交目标TA到达8次人群总数'
+    ,reach_ta_09         STRING COMMENT '该时间段内相交目标TA到达9次人群总数'
+    ,reach_ta_10         STRING COMMENT '该时间段内相交目标TA到达10次人群总数'
+    ,reach_ta_10_plus    STRING COMMENT '该时间段内相交目标TA到达超过10次人群总数'
 )
 COMMENT '活动周表'
-PARTITIONED BY (
-    dt STRING COMMENT '分区日期'
+PARTITIONED BY 
+(
+    dt                   STRING COMMENT '分区日期'
 )
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_report_oss_di (
-    fiscal_year           STRING COMMENT '财年（如FY26）',
-    fiscal_period         STRING COMMENT '财期（如P1）',
-    fiscal_week           STRING COMMENT '财周（如W1）',
-    start_date            STRING COMMENT '统计开始日期（格式：2025/6/29）',
-    end_date              STRING COMMENT '统计结束日期（格式：2025/7/5）',
-    campaign_id           STRING COMMENT '营销活动ID',
-    campaign_name         STRING COMMENT '营销活动名称',
-    channel               STRING COMMENT '投放渠道（All, OLV, OTV等）',
-    target_audience_num   STRING COMMENT 'TA目标总人数',
-    region                STRING COMMENT '投放区域（All, Wuhan, Qingdao等）',
-    partner               STRING COMMENT '合作方（All, IQIYI, Tencent等）',
-    platform              STRING COMMENT '投放平台（All, PC, MOB, OTT等）',
-    spot                  STRING COMMENT '投放点位（All, billboard等）',
-    impression            STRING COMMENT '该时间段内IMP数量',
-    click                 STRING COMMENT '该时间段内CLK数量',
-    reach_ttl             STRING COMMENT '该时间段内到达人群总数',
-    reach_01              STRING COMMENT '该时间段内到达1次人群总数',
-    reach_02              STRING COMMENT '该时间段内到达2次人群总数',
-    reach_03              STRING COMMENT '该时间段内到达3次人群总数',
-    reach_04              STRING COMMENT '该时间段内到达4次人群总数',
-    reach_05              STRING COMMENT '该时间段内到达5次人群总数',
-    reach_06              STRING COMMENT '该时间段内到达6次人群总数',
-    reach_07              STRING COMMENT '该时间段内到达7次人群总数',
-    reach_08              STRING COMMENT '该时间段内到达8次人群总数',
-    reach_09              STRING COMMENT '该时间段内到达9次人群总数',
-    reach_10              STRING COMMENT '该时间段内到达10次人群总数',
-    reach_10_plus         STRING COMMENT '该时间段内到达超过10次人群总数',
-    reach_ta_ttl          STRING COMMENT '该时间段内相交目标TA到达人群总数',
-    reach_ta_01           STRING COMMENT '该时间段内相交目标TA到达1次人群总数',
-    reach_ta_02           STRING COMMENT '该时间段内相交目标TA到达2次人群总数',
-    reach_ta_03           STRING COMMENT '该时间段内相交目标TA到达3次人群总数',
-    reach_ta_04           STRING COMMENT '该时间段内相交目标TA到达4次人群总数',
-    reach_ta_05           STRING COMMENT '该时间段内相交目标TA到达5次人群总数',
-    reach_ta_06           STRING COMMENT '该时间段内相交目标TA到达6次人群总数',
-    reach_ta_07           STRING COMMENT '该时间段内相交目标TA到达7次人群总数',
-    reach_ta_08           STRING COMMENT '该时间段内相交目标TA到达8次人群总数',
-    reach_ta_09           STRING COMMENT '该时间段内相交目标TA到达9次人群总数',
-    reach_ta_10           STRING COMMENT '该时间段内相交目标TA到达10次人群总数',
-    reach_ta_10_plus      STRING COMMENT '该时间段内相交目标TA到达超过10次人群总数'
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_report_oss_di
+(
+    fiscal_year          STRING COMMENT '财年（如FY26）'
+    ,fiscal_period       STRING COMMENT '财期（如P1）'
+    ,fiscal_week         STRING COMMENT '财周（如W1）'
+    ,start_date          STRING COMMENT '统计开始日期（格式：2025/6/29）'
+    ,end_date            STRING COMMENT '统计结束日期（格式：2025/7/5）'
+    ,campaign_id         STRING COMMENT '营销活动ID'
+    ,campaign_name       STRING COMMENT '营销活动名称'
+    ,channel             STRING COMMENT '投放渠道（All, OLV, OTV等）'
+    ,target_audience_num STRING COMMENT 'TA目标总人数'
+    ,region              STRING COMMENT '投放区域（All, Wuhan, Qingdao等）'
+    ,partner             STRING COMMENT '合作方（All, IQIYI, Tencent等）'
+    ,platform            STRING COMMENT '投放平台（All, PC, MOB, OTT等）'
+    ,spot                STRING COMMENT '投放点位（All, billboard等）'
+    ,impression          STRING COMMENT '该时间段内IMP数量'
+    ,click               STRING COMMENT '该时间段内CLK数量'
+    ,reach_ttl           STRING COMMENT '该时间段内到达人群总数'
+    ,reach_01            STRING COMMENT '该时间段内到达1次人群总数'
+    ,reach_02            STRING COMMENT '该时间段内到达2次人群总数'
+    ,reach_03            STRING COMMENT '该时间段内到达3次人群总数'
+    ,reach_04            STRING COMMENT '该时间段内到达4次人群总数'
+    ,reach_05            STRING COMMENT '该时间段内到达5次人群总数'
+    ,reach_06            STRING COMMENT '该时间段内到达6次人群总数'
+    ,reach_07            STRING COMMENT '该时间段内到达7次人群总数'
+    ,reach_08            STRING COMMENT '该时间段内到达8次人群总数'
+    ,reach_09            STRING COMMENT '该时间段内到达9次人群总数'
+    ,reach_10            STRING COMMENT '该时间段内到达10次人群总数'
+    ,reach_10_plus       STRING COMMENT '该时间段内到达超过10次人群总数'
+    ,reach_ta_ttl        STRING COMMENT '该时间段内相交目标TA到达人群总数'
+    ,reach_ta_01         STRING COMMENT '该时间段内相交目标TA到达1次人群总数'
+    ,reach_ta_02         STRING COMMENT '该时间段内相交目标TA到达2次人群总数'
+    ,reach_ta_03         STRING COMMENT '该时间段内相交目标TA到达3次人群总数'
+    ,reach_ta_04         STRING COMMENT '该时间段内相交目标TA到达4次人群总数'
+    ,reach_ta_05         STRING COMMENT '该时间段内相交目标TA到达5次人群总数'
+    ,reach_ta_06         STRING COMMENT '该时间段内相交目标TA到达6次人群总数'
+    ,reach_ta_07         STRING COMMENT '该时间段内相交目标TA到达7次人群总数'
+    ,reach_ta_08         STRING COMMENT '该时间段内相交目标TA到达8次人群总数'
+    ,reach_ta_09         STRING COMMENT '该时间段内相交目标TA到达9次人群总数'
+    ,reach_ta_10         STRING COMMENT '该时间段内相交目标TA到达10次人群总数'
+    ,reach_ta_10_plus    STRING COMMENT '该时间段内相交目标TA到达超过10次人群总数'
 )
 COMMENT '活动周表'
-PARTITIONED BY (
-    dt STRING COMMENT '分区日期（建议格式：yyyyMMdd，如20250629）'
+PARTITIONED BY 
+(
+    dt                   STRING COMMENT '分区日期（建议格式：yyyyMMdd，如20250629）'
 )
+;
+
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_monthly_report_oss_di
+(
+    fiscal_year          STRING COMMENT '财年（如FY26）'
+    ,fiscal_period       STRING COMMENT '财期（如P1）'
+    ,start_date          STRING COMMENT '统计开始日期（格式：2025/6/29）'
+    ,end_date            STRING COMMENT '统计结束日期（格式：2025/8/2）'
+    ,campaign_id         STRING COMMENT '营销活动ID'
+    ,campaign_name       STRING COMMENT '营销活动名称'
+    ,channel             STRING COMMENT '投放渠道（All, OLV, OTV等）'
+    ,target_audience_num STRING COMMENT 'TA目标总人数'
+    ,region              STRING COMMENT '投放区域（All, Wuhan, Qingdao等）'
+    ,partner             STRING COMMENT '合作方（All, IQIYI, Tencent等）'
+    ,platform            STRING COMMENT '投放平台（All, PC, MOB, OTT等）'
+    ,spot                STRING COMMENT '投放点位（All, billboard等）'
+    ,impression          STRING COMMENT '该时间段内IMP数量'
+    ,click               STRING COMMENT '该时间段内CLK数量'
+    ,reach_ttl           STRING COMMENT '该时间段内到达人群总数'
+    ,reach_01            STRING COMMENT '该时间段内到达1次人群总数'
+    ,reach_02            STRING COMMENT '该时间段内到达2次人群总数'
+    ,reach_03            STRING COMMENT '该时间段内到达3次人群总数'
+    ,reach_04            STRING COMMENT '该时间段内到达4次人群总数'
+    ,reach_05            STRING COMMENT '该时间段内到达5次人群总数'
+    ,reach_06            STRING COMMENT '该时间段内到达6次人群总数'
+    ,reach_07            STRING COMMENT '该时间段内到达7次人群总数'
+    ,reach_08            STRING COMMENT '该时间段内到达8次人群总数'
+    ,reach_09            STRING COMMENT '该时间段内到达9次人群总数'
+    ,reach_10            STRING COMMENT '该时间段内到达10次人群总数'
+    ,reach_10_plus       STRING COMMENT '该时间段内到达超过10次人群总数'
+    ,reach_ta_ttl        STRING COMMENT '该时间段内相交目标TA到达人群总数'
+    ,reach_ta_01         STRING COMMENT '该时间段内相交目标TA到达1次人群总数'
+    ,reach_ta_02         STRING COMMENT '该时间段内相交目标TA到达2次人群总数'
+    ,reach_ta_03         STRING COMMENT '该时间段内相交目标TA到达3次人群总数'
+    ,reach_ta_04         STRING COMMENT '该时间段内相交目标TA到达4次人群总数'
+    ,reach_ta_05         STRING COMMENT '该时间段内相交目标TA到达5次人群总数'
+    ,reach_ta_06         STRING COMMENT '该时间段内相交目标TA到达6次人群总数'
+    ,reach_ta_07         STRING COMMENT '该时间段内相交目标TA到达7次人群总数'
+    ,reach_ta_08         STRING COMMENT '该时间段内相交目标TA到达8次人群总数'
+    ,reach_ta_09         STRING COMMENT '该时间段内相交目标TA到达9次人群总数'
+    ,reach_ta_10         STRING COMMENT '该时间段内相交目标TA到达10次人群总数'
+    ,reach_ta_10_plus    STRING COMMENT '该时间段内相交目标TA到达超过10次人群总数'
+)
+PARTITIONED BY 
+(
+    dt                   STRING COMMENT '分区日期'
+)
+STORED AS aliorc
+TBLPROPERTIES ('columnar.nested.type' = 'true','comment' = '活动周表')
+;
+
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_report_oss_di
+(
+    fiscal_year          STRING COMMENT '财年（如FY26）'
+    ,fiscal_period       STRING COMMENT '财期（如P1）'
+    ,fiscal_week         STRING COMMENT '财周（如W1）'
+    ,start_date          STRING COMMENT '统计开始日期（格式：2025/6/29）'
+    ,end_date            STRING COMMENT '统计结束日期（格式：2025/7/5）'
+    ,campaign_id         STRING COMMENT '营销活动ID'
+    ,campaign_name       STRING COMMENT '营销活动名称'
+    ,channel             STRING COMMENT '投放渠道（All, OLV, OTV等）'
+    ,target_audience_num STRING COMMENT 'TA目标总人数'
+    ,region              STRING COMMENT '投放区域（All, Wuhan, Qingdao等）'
+    ,partner             STRING COMMENT '合作方（All, IQIYI, Tencent等）'
+    ,platform            STRING COMMENT '投放平台（All, PC, MOB, OTT等）'
+    ,spot                STRING COMMENT '投放点位（All, billboard等）'
+    ,impression          STRING COMMENT '该时间段内IMP数量'
+    ,click               STRING COMMENT '该时间段内CLK数量'
+    ,reach_ttl           STRING COMMENT '该时间段内到达人群总数'
+    ,reach_01            STRING COMMENT '该时间段内到达1次人群总数'
+    ,reach_02            STRING COMMENT '该时间段内到达2次人群总数'
+    ,reach_03            STRING COMMENT '该时间段内到达3次人群总数'
+    ,reach_04            STRING COMMENT '该时间段内到达4次人群总数'
+    ,reach_05            STRING COMMENT '该时间段内到达5次人群总数'
+    ,reach_06            STRING COMMENT '该时间段内到达6次人群总数'
+    ,reach_07            STRING COMMENT '该时间段内到达7次人群总数'
+    ,reach_08            STRING COMMENT '该时间段内到达8次人群总数'
+    ,reach_09            STRING COMMENT '该时间段内到达9次人群总数'
+    ,reach_10            STRING COMMENT '该时间段内到达10次人群总数'
+    ,reach_10_plus       STRING COMMENT '该时间段内到达超过10次人群总数'
+    ,reach_ta_ttl        STRING COMMENT '该时间段内相交目标TA到达人群总数'
+    ,reach_ta_01         STRING COMMENT '该时间段内相交目标TA到达1次人群总数'
+    ,reach_ta_02         STRING COMMENT '该时间段内相交目标TA到达2次人群总数'
+    ,reach_ta_03         STRING COMMENT '该时间段内相交目标TA到达3次人群总数'
+    ,reach_ta_04         STRING COMMENT '该时间段内相交目标TA到达4次人群总数'
+    ,reach_ta_05         STRING COMMENT '该时间段内相交目标TA到达5次人群总数'
+    ,reach_ta_06         STRING COMMENT '该时间段内相交目标TA到达6次人群总数'
+    ,reach_ta_07         STRING COMMENT '该时间段内相交目标TA到达7次人群总数'
+    ,reach_ta_08         STRING COMMENT '该时间段内相交目标TA到达8次人群总数'
+    ,reach_ta_09         STRING COMMENT '该时间段内相交目标TA到达9次人群总数'
+    ,reach_ta_10         STRING COMMENT '该时间段内相交目标TA到达10次人群总数'
+    ,reach_ta_10_plus    STRING COMMENT '该时间段内相交目标TA到达超过10次人群总数'
+)
+PARTITIONED BY 
+(
+    dt                   STRING COMMENT '分区日期（建议格式：yyyyMMdd，如20250629）'
+)
+STORED AS aliorc
+TBLPROPERTIES ('columnar.nested.type' = 'true','comment' = '活动周表')
 ;
