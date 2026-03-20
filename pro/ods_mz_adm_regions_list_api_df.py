@@ -61,7 +61,7 @@ def init_maxcompute() -> Optional[ODPS]:
 
         # 验证连接（列出表名，确认认证成功）
         o.list_tables(max_items=1)
-        print(f"✅ MaxCompute极简初始化成功（默认项目：{project_name}）")
+        print(f"✅ MaxCompute极简初始化成功（默认项目：{ODPS().project}）")
         return o
     except Exception as e:
         print(f"❌ MaxCompute极简初始化失败：{str(e)}")
