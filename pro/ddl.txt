@@ -229,7 +229,7 @@ PARTITIONED BY (dt STRING COMMENT '分区日期（格式：yyyyMMdd）')
 
 
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_list_targets_api_df (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_targets_api_df (
     -- 一、接口调用参数（核心）
     request_campaign_id STRING COMMENT '调用list_targets时传入的campaign_id（请求参数）',
 
