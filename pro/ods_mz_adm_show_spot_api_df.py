@@ -68,7 +68,7 @@ CONFIG = {
         "campaign_list_spots_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/list_spots",
         "campaign_show_spot_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/show_spot",
         "timeout": 30,
-        "interval": 0.2
+        "interval": 0.02
     },
     "batch_size": 100  # 批量写入大小
 }
