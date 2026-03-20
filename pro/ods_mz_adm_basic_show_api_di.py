@@ -9,23 +9,24 @@ from odps import ODPS, options
 # ===================== 基础配置（MaxCompute + 日期参数） =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 核心修改：自动获取ODPS项目名
+# 自动获取ODPS项目名
 ODPS_PROJECT = ODPS().project  # 从odps配置文件自动读取默认项目名
 
 CONFIG = {
     "start_dt": "20260309",  # 配置开始日期（yyyyMMdd）
     "end_dt": "20260311",  # 配置结束日期（yyyyMMdd）
-    # MaxCompute配置（使用自动获取的项目名）
+    # MaxCompute配置（适配新表名）
     "odps": {
-        "project": ODPS_PROJECT,  # 自动填充项目名
-        "table_name": "ods_mz_admonitor_basic_report_df",  # 目标表名（需提前创建）
+        "project": ODPS_PROJECT,
+        "table_name": "coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di",  # 新表名
         "partition_col": "dt",  # 分区字段（yyyyMMdd）
         "batch_size": 1000  # 批量写入大小
     },
-    # 报表参数：适配新接口参数
+    # 报表参数：适配新表维度字段
     "report_params": {
         "metrics": "all",
-        "by_region_list": ["level0", "level1", "level2"]
+        "by_region_list": ["level0", "level1", "level2"],
+        "by_position": "spot"  # 固定值：spot
     },
     "api": {
         "token_url": "https://api.cn.miaozhen.com/oauth/token",
@@ -104,7 +105,6 @@ def get_partition_dt(date_str):
 def init_odps_client():
     """初始化ODPS客户端（使用自动获取的项目名）"""
     try:
-        # 直接使用已获取的项目名初始化
         odps = ODPS(project=ODPS_PROJECT)
 
         # ODPS优化配置（提升写入效率）
@@ -121,7 +121,7 @@ def init_odps_client():
 
 def write_data_to_odps(odps, data, partition_dt):
     """
-    写入数据到MaxCompute指定分区（目标表需提前创建）
+    写入数据到MaxCompute指定分区（适配新表结构）
     :param odps: ODPS客户端实例
     :param data: 待写入数据（List[List]格式）
     :param partition_dt: 分区值（yyyyMMdd）
@@ -181,7 +181,10 @@ def get_miaozhen_token():
 
 
 def get_valid_campaigns(token):
-    """获取有效活动列表（含ID+有效期，用于日期校验）"""
+    """
+    获取有效活动列表（含ID+活动起止日期，适配新表字段）
+    返回：包含campaign_id/campaign_start_date/campaign_end_date的字典列表
+    """
     print("🔍 获取有效活动列表（含有效期）...")
     try:
         resp = requests.get(
@@ -201,46 +204,55 @@ def get_valid_campaigns(token):
                 print(f"⚠️ 第{idx + 1}条活动数据非字典格式，跳过：{camp}")
                 continue
 
-            # 提取核心字段
+            # 提取活动核心字段（适配新表）
             camp_id = camp.get("campaign_id")
-            camp_start = camp.get("start_date")
-            camp_end = camp.get("end_date")
+            campaign_start_date = camp.get("start_date")  # 活动开始日期
+            campaign_end_date = camp.get("end_date")  # 活动结束日期
 
             # 校验字段完整性
-            if not camp_id or not camp_start or not camp_end:
+            if not camp_id or not campaign_start_date or not campaign_end_date:
                 print(f"⚠️ 第{idx + 1}条活动数据核心字段缺失，跳过：{camp.get('campaign_id', '未知ID')}")
                 continue
 
             # 校验日期格式
             try:
-                datetime.strptime(camp_start, "%Y-%m-%d")
-                datetime.strptime(camp_end, "%Y-%m-%d")
+                datetime.strptime(campaign_start_date, "%Y-%m-%d")
+                datetime.strptime(campaign_end_date, "%Y-%m-%d")
             except Exception as e:
                 print(f"⚠️ 活动{camp_id}日期格式错误，跳过：{str(e)}")
                 continue
 
             valid_camps.append({
                 "campaign_id": str(camp_id).strip(),
-                "start_date": camp_start,
-                "end_date": camp_end
+                "campaign_start_date": campaign_start_date,
+                "campaign_end_date": campaign_end_date
             })
 
         print(f"✅ 获取到{len(valid_camps)}个有效活动（含有效期）")
         for camp in valid_camps:
-            print(f"   - 活动{camp['campaign_id']} | 有效期：{camp['start_date']}~{camp['end_date']}")
+            print(f"   - 活动{camp['campaign_id']} | 有效期：{camp['campaign_start_date']}~{camp['campaign_end_date']}")
         return valid_camps
     except Exception as e:
         raise Exception(f"活动列表获取失败：{str(e)}")
 
 
-def collect_report_data(token, campaign_id, single_date, by_region):
-    """采集单活动+单日期+单地域维度的报表数据"""
+def collect_report_data(token, campaign_info, single_date, by_region):
+    """
+    采集单活动+单日期+单地域维度的报表数据（适配新表所有字段）
+    :param campaign_info: 活动信息字典（含campaign_id/campaign_start_date/campaign_end_date）
+    :param single_date: 报表采集日期（yyyy-MM-dd）
+    :param by_region: 地域维度值
+    :return: 与新表字段一一对应的行数据
+    """
     try:
+        campaign_id = campaign_info["campaign_id"]
         print(f"  🔍 采集活动{campaign_id} | 地域[{by_region}] | 日期[{single_date}]...")
+
+        # 新接口参数（date替代start/end_date）
         params = {
             "access_token": token,
             "campaign_id": campaign_id,
-            "date": single_date,  # 新接口参数：单日日期
+            "date": single_date,
             "metrics": CONFIG["report_params"]["metrics"],
             "by_region": by_region
         }
@@ -254,15 +266,26 @@ def collect_report_data(token, campaign_id, single_date, by_region):
         resp.raise_for_status()
         parsed_data = resp.json()
 
-        # 组装单条数据（与ODPS表字段一一对应）
+        # 解析秒针返回的指标数据
         report_item = parsed_data.get("result", parsed_data)
         report_item = report_item[0] if isinstance(report_item, list) and report_item else report_item
 
+        # 组装单条数据（与新表字段完全一一对应）
         row = [
+            # 1. 活动核心信息字段
             safe_str(campaign_id),  # campaign_id
-            safe_str(single_date),  # report_date
+            safe_str(campaign_info["campaign_start_date"]),  # campaign_start_date
+            safe_str(campaign_info["campaign_end_date"]),  # campaign_end_date
+
+            # 2. 报表采集日期字段
+            safe_str(single_date),  # report_day_date
+
+            # 3. 报表维度参数字段
+            safe_str(CONFIG["report_params"]["by_position"]),  # by_position（固定spot）
             safe_str(by_region),  # by_region
-            safe_str(CONFIG["report_params"]["metrics"]),  # metrics
+            safe_str(CONFIG["report_params"]["metrics"]),  # metrics（固定all）
+
+            # 4. 秒针返回的核心指标字段
             safe_str(report_item.get("version")),  # version
             safe_str(report_item.get("platform")),  # platform
             safe_str(report_item.get("total_spot_num")),  # total_spot_num
@@ -270,6 +293,7 @@ def collect_report_data(token, campaign_id, single_date, by_region):
             safe_str(report_item.get("target_id")),  # target_id
             safe_str(report_item.get("publisher_id")),  # publisher_id
             safe_str(report_item.get("spot_id")),  # spot_id
+            safe_str(report_item.get("keyword_id")),  # keyword_id
             safe_str(report_item.get("region_id")),  # region_id
             safe_str(report_item.get("universe")),  # universe
             safe_str(report_item.get("imp_acc")),  # imp_acc
@@ -278,6 +302,18 @@ def collect_report_data(token, campaign_id, single_date, by_region):
             safe_str(report_item.get("ucl_acc")),  # ucl_acc
             safe_str(report_item.get("imp_day")),  # imp_day
             safe_str(report_item.get("clk_day")),  # clk_day
+            safe_str(report_item.get("uim_day")),  # uim_day
+            safe_str(report_item.get("ucl_day")),  # ucl_day
+            safe_str(report_item.get("imp_avg_day")),  # imp_avg_day
+            safe_str(report_item.get("clk_avg_day")),  # clk_avg_day
+            safe_str(report_item.get("uim_avg_day")),  # uim_avg_day
+            safe_str(report_item.get("ucl_avg_day")),  # ucl_avg_day
+            safe_str(report_item.get("imp_acc_h00")),  # imp_acc_h00
+            safe_str(report_item.get("imp_acc_h23")),  # imp_acc_h23
+            safe_str(report_item.get("clk_acc_h00")),  # clk_acc_h00
+            safe_str(report_item.get("clk_acc_h23")),  # clk_acc_h23
+
+            # 5. 原始数据与采集元信息
             safe_str(resp.text),  # pre_parse_raw_text
             get_etl_datetime()  # etl_datetime
         ]
@@ -285,18 +321,19 @@ def collect_report_data(token, campaign_id, single_date, by_region):
         print(f"  ✅ 活动{campaign_id}日期[{single_date}]采集成功")
         return row
     except Exception as e:
-        print(f"  ❌ 活动{campaign_id}日期[{single_date}]采集失败：{str(e)}")
+        print(f"  ❌ 活动{campaign_info['campaign_id']}日期[{single_date}]采集失败：{str(e)}")
         return None
 
 
 # ===================== 主流程 =====================
 def main():
     print("=" * 80)
-    print("🚀 秒针日报表采集任务启动（写入MaxCompute + 单日分区）")
+    print("🚀 秒针日报表采集任务启动（写入MaxCompute + 适配新表结构）")
     print(f"📅 配置日期区间：{CONFIG['start_dt']} ~ {CONFIG['end_dt']}")
     print(f"🔧 ODPS项目：{ODPS_PROJECT}")
     print(f"🔧 目标表：{CONFIG['odps']['table_name']}")
-    print(f"🔧 报表参数：metrics={CONFIG['report_params']['metrics']}")
+    print(
+        f"🔧 报表参数：metrics={CONFIG['report_params']['metrics']} | by_position={CONFIG['report_params']['by_position']}")
     print(f"🔧 地域维度：{CONFIG['report_params']['by_region_list']}")
     print("=" * 80)
 
@@ -305,7 +342,7 @@ def main():
         if not ODPS_PROJECT:
             raise Exception("ODPS项目名自动获取失败，请检查~/.odps_config.ini配置")
 
-        # 2. 初始化ODPS客户端（移除建表逻辑）
+        # 2. 初始化ODPS客户端
         odps = init_odps_client()
 
         # 3. 获取秒针Token
@@ -315,7 +352,7 @@ def main():
         config_start = format_date(CONFIG["start_dt"])
         config_end = format_date(CONFIG["end_dt"])
 
-        # 5. 获取有效活动列表（含有效期）
+        # 5. 获取有效活动列表（含活动起止日期）
         valid_camps = get_valid_campaigns(token)
         if not valid_camps:
             print("⚠️ 未获取到任何有效活动，任务终止")
@@ -326,8 +363,8 @@ def main():
 
         for camp in valid_camps:
             camp_id = camp["campaign_id"]
-            camp_start = camp["start_date"]
-            camp_end = camp["end_date"]
+            camp_start = camp["campaign_start_date"]
+            camp_end = camp["campaign_end_date"]
 
             # 日期交集校验：无交集则跳过
             if not is_date_overlap(config_start, config_end, camp_start, camp_end):
@@ -344,8 +381,8 @@ def main():
             # 遍历地域维度 + 单日采集
             for by_region in CONFIG["report_params"]["by_region_list"]:
                 for single_date in single_dates:
-                    # 采集单条数据
-                    row = collect_report_data(token, camp_id, single_date, by_region)
+                    # 采集单条数据（传入完整活动信息）
+                    row = collect_report_data(token, camp, single_date, by_region)
                     if not row:
                         continue
 
@@ -372,6 +409,7 @@ def main():
         print("\n" + "=" * 80)
         print("✅ 秒针日报表采集+入库任务完成！")
         print(f"📊 ODPS项目：{ODPS_PROJECT}")
+        print(f"📊 目标表：{CONFIG['odps']['table_name']}")
         print(f"📊 总写入分区数：{len(date_data_map)}个")
         print(f"📊 总写入数据条数：{total_rows}条")
         print(f"📊 覆盖分区：{list(date_data_map.keys())}")
