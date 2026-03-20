@@ -45,6 +45,7 @@ CONFIG = {
             "linked_siteid",
             "placement_name",
             "spot_id_str",
+            "keyword",  # 新增：关键词列表（JSON格式）
             "adposition_type",
             "pre_parse_raw_text",
             "etl_datetime"
@@ -237,6 +238,9 @@ def get_spot_detail(token: str, campaign_id: str, spot_id_str: str) -> Optional[
                 standard_spot[col] = to_string(spot_id_str)
             elif col == "etl_datetime":
                 standard_spot[col] = etl_datetime
+            # 新增：处理keyword字段（接口返回的keyword或空字符串）
+            elif col == "keyword":
+                standard_spot[col] = to_string(spot_detail.get(col, ""))
             else:
                 standard_spot[col] = to_string(spot_detail.get(col, ""))
 
