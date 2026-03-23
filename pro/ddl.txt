@@ -1,4 +1,5 @@
 -- API表结构
+drop table if exists coach_marketing_hub_dev.ods_mz_adm_campaigns_list_api_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_campaigns_list_api_df
 (
     campaign_id         STRING COMMENT '活动ID'
@@ -11,7 +12,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_campaigns_list_api
     ,campaign_name      STRING COMMENT '活动名称'
     ,campaign_type      STRING COMMENT '活动类型'
     ,creator_name       STRING COMMENT '创建人'
-    ,description        STRING COMMENT '活动描述'
+    ,s_description      STRING COMMENT '活动描述'
     ,linked_iplib       STRING COMMENT '关联IP库'
     ,linked_panels      STRING COMMENT '关联面板'
     ,linked_siteids     STRING COMMENT '关联站点ID'
@@ -26,6 +27,7 @@ PARTITIONED BY
 )
 ;
 
+drop table if exists coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di
 (
     -- 1. 活动核心信息字段（从/cms/v1/campaigns/list接口获取）
@@ -39,7 +41,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di
     ,by_region           STRING COMMENT '地域维度值（level0/level1/level2）'
     ,metrics             STRING COMMENT '指标维度值（固定为all）'
     -- 4. 秒针日报接口顶层指标字段
-    ,version             STRING COMMENT '版本号（接口顶层字段）'
+    ,s_version             STRING COMMENT '版本号（接口顶层字段）'
     ,platform            STRING COMMENT '平台类型（接口顶层字段，如pc）'
     ,total_spot_num      STRING COMMENT '总点位数量（接口顶层字段）'
     -- 5. 秒针日报接口items.attributes属性字段
@@ -80,6 +82,7 @@ PARTITIONED BY
 ;
 
 -- 创建秒针活动列表分区表
+drop table if exists coach_marketing_hub_dev.ods_mz_tvm_campaigns_list_api_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_campaigns_list_api_df
 (
     campaign_id         STRING COMMENT '活动ID（主键）'
@@ -88,12 +91,12 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_campaigns_list_api
     ,order_id           STRING COMMENT '订单ID（可为空）'
     ,scheduling         STRING COMMENT '排期信息（可为空）'
     ,campaign_name      STRING COMMENT '活动名称'
-    ,description        STRING COMMENT '活动描述'
+    ,s_description      STRING COMMENT '活动描述'
     ,created_time       STRING COMMENT '活动创建时间（yyyy-MM-dd HH:mm:ss）'
     ,advertiser         STRING COMMENT '广告主名称'
     ,agency             STRING COMMENT '代理商名称'
     ,brand              STRING COMMENT '品牌名称'
-    ,status             STRING COMMENT '活动状态（going-进行中/finished-已结束等）'
+    ,s_status           STRING COMMENT '活动状态（going-进行中/finished-已结束等）'
     ,verify_version     STRING COMMENT '审核版本号'
     ,total_net_id       STRING COMMENT '总网络ID（可为空）'
     ,calculate_type     STRING COMMENT '计算类型（可为空）'
@@ -111,8 +114,8 @@ PARTITIONED BY
 )
 ;
 
-drop table coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di (
+drop table if exists coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di;
+CREATE TABLE coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di (
     -- 1. 接口请求参数（溯源用）
     request_campaign_id STRING COMMENT '请求参数-活动ID',
     request_date STRING COMMENT '请求参数-报表日期(yyyy-MM-dd)',
@@ -125,7 +128,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di 
     camp_start_date STRING COMMENT '活动开始日期(yyyy-MM-dd)',
     camp_end_date STRING COMMENT '活动结束日期(yyyy-MM-dd)',
     report_date STRING COMMENT '报表日期(yyyy-MM-dd)',
-    version BIGINT COMMENT '版本号',
+    s_version BIGINT COMMENT '版本号',
 
     -- 3. 物料属性信息（响应参数-attributes全量）
     publisher_id STRING COMMENT '发布商ID',
@@ -209,42 +212,24 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di 
     pre_parse_raw_text STRING COMMENT '当前行对应的解析数据（attributes+metrics）',
     etl_datetime STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
 )
-COMMENT '秒针TVM基础曝光报表ODS层表（包含report_basic_url所有参数）'
+comment '秒针TVM基础曝光报表ODS层表（包含report_basic_url所有参数）'
 PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.dim_fiscal_date
-(
-    FSY_ID         STRING COMMENT '主键ID'
-    ,FSY_CODE      STRING COMMENT '财周编码（年份+周数，如20101代表2010年第1周）'
-    ,FSY_YEAR      STRING COMMENT '财年'
-    ,FSY_HALF_YEAR STRING COMMENT '财半年（1：上半年，2：下半年）'
-    ,FSY_QUARTER   STRING COMMENT '财季度（1-4）'
-    ,FSY_PERIOD    STRING COMMENT '财期/月周期（1-12）'
-    ,FSY_WEEK      STRING COMMENT '财周（1-53）'
-    ,FSY_FROM_DT   STRING COMMENT '财周开始日期（格式：yyyy-MM-dd）'
-    ,FSY_TO_DT     STRING COMMENT '财周结束日期（格式：yyyy-MM-dd）'
-    ,FSY_DT        STRING COMMENT '财周内具体日期（格式：yyyy-MM-dd，扩展每一天）'
-)
-COMMENT '财周日历表-含日期明细版本'
-PARTITIONED BY 
-(
-    dt             STRING COMMENT '分区日期(yyyyMMdd)'
-)
-;
 
+drop table if exists coach_marketing_hub_dev.ods_mz_adm_list_spots_api_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_spots_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用list_spots时传入的campaign_id（请求参数）'
     -- 二、接口返回所有字段（嵌套字段序列化为JSON字符串）
     ,CAGUID              STRING COMMENT '活动全局唯一标识（示例：空字符串）'
-    ,GUID                STRING COMMENT '全局唯一标识（示例：空字符串）'
+    ,s_GUID              STRING COMMENT '全局唯一标识（示例：空字符串）'
     ,adposition_type     STRING COMMENT '广告位类型（示例：Banner）'
     ,area_size           STRING COMMENT '投放量级（示例：空字符串）'
     ,channel_name        STRING COMMENT '渠道名称（示例：F18-30）'
     ,customize           STRING COMMENT '自定义字段（示例：空字符串）'
-    ,description         STRING COMMENT '广告位描述（示例：空字符串）'
+    ,s_description       STRING COMMENT '广告位描述（示例：空字符串）'
     ,landing_page        STRING COMMENT '落地页地址（示例：空字符串）'
     ,market              STRING COMMENT '市场类型（示例：空字符串）'
     ,placement_name      STRING COMMENT '投放位置名称（示例：ALL_焦点图_shan KV）'
@@ -267,6 +252,8 @@ PARTITIONED BY
 )
 ;
 
+
+drop table if exists coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df
 (
     -- 一、接口调用参数（核心双参数）
@@ -277,8 +264,8 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df
     ,channel_name        STRING COMMENT '渠道名称（示例：F18-30 人群包）'
     ,publisher_name      STRING COMMENT '发布方名称（示例：哔哩哔哩）'
     ,spot_id             STRING COMMENT '广告位ID（示例：133409876）'
-    ,GUID                STRING COMMENT '全局唯一标识（示例：空字符串）'
-    ,description         STRING COMMENT '广告位描述（示例：空字符串）'
+    ,s_GUID              STRING COMMENT '全局唯一标识（示例：空字符串）'
+    ,s_description       STRING COMMENT '广告位描述（示例：空字符串）'
     ,CAGUID              STRING COMMENT '活动全局唯一标识（示例：空字符串）'
     ,customize           STRING COMMENT '自定义字段（示例：空字符串）'
     ,report_metrics      STRING COMMENT '报表指标（示例：空字符串）'
@@ -301,6 +288,7 @@ PARTITIONED BY
 )
 ;
 
+drop table if exists coach_marketing_hub_dev.ods_mz_adm_list_targets_api_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_targets_api_df
 (
     -- 一、接口调用参数（核心）
@@ -320,10 +308,11 @@ PARTITIONED BY
 )
 ;
 
+drop table if exists coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df
 (
     -- 接口返回核心字段
-    level               STRING COMMENT '区域层级（数字型，如0）'
+    s_level             STRING COMMENT '区域层级（数字型，如0）'
     ,parent_id          STRING COMMENT '父级区域ID（空字符串表示无父级）'
     ,region_id          STRING COMMENT '区域唯一ID（如000000000000000000000000）'
     ,region_name        STRING COMMENT '区域名称（如Global、Dongying）'
@@ -338,6 +327,8 @@ PARTITIONED BY
 )
 ;
 
+
+drop table if exists coach_marketing_hub_dev.ods_mz_tvm_spot_list_api_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_list_api_df
 (
     -- 一、接口调用参数（核心）
@@ -350,7 +341,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_list_api_df
     ,channel_name        STRING COMMENT '渠道名称'
     ,pub_id              STRING COMMENT '发布方ID'
     ,publisher           STRING COMMENT '发布方名称（如小米）'
-    ,description         STRING COMMENT '点位描述'
+    ,s_description       STRING COMMENT '点位描述'
     ,ad_type             STRING COMMENT '广告类型（如开机视频）'
     ,category            STRING COMMENT '广告分类'
     ,brand               STRING COMMENT '品牌名称'
@@ -384,6 +375,7 @@ PARTITIONED BY
 )
 ;
 
+drop table if exists coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df
 (
     -- 一、接口调用参数（核心）
@@ -397,7 +389,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df
     ,channel_name        STRING COMMENT '渠道名称'
     ,pub_id              STRING COMMENT '发布方ID'
     ,publisher           STRING COMMENT '发布方名称（如小米）'
-    ,description         STRING COMMENT '点位描述'
+    ,s_description       STRING COMMENT '点位描述'
     ,ad_type             STRING COMMENT '广告类型（如开机视频）'
     ,category            STRING COMMENT '广告分类'
     ,brand               STRING COMMENT '品牌名称'
@@ -431,6 +423,7 @@ PARTITIONED BY
 )
 ;
 
+drop table if exists coach_marketing_hub_dev.ods_mz_tvm_target_info_api_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_target_info_api_df
 (
     -- 一、接口调用参数（仅campaign_id）
@@ -547,5 +540,26 @@ COMMENT '活动周表'
 PARTITIONED BY
 (
     dt                   STRING COMMENT '分区日期（建议格式：yyyyMMdd，如20250629）'
+)
+;
+
+-- 手工表
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.dim_fiscal_date
+(
+    FSY_ID         STRING COMMENT '主键ID'
+    ,FSY_CODE      STRING COMMENT '财周编码（年份+周数，如20101代表2010年第1周）'
+    ,FSY_YEAR      STRING COMMENT '财年'
+    ,FSY_HALF_YEAR STRING COMMENT '财半年（1：上半年，2：下半年）'
+    ,FSY_QUARTER   STRING COMMENT '财季度（1-4）'
+    ,FSY_PERIOD    STRING COMMENT '财期/月周期（1-12）'
+    ,FSY_WEEK      STRING COMMENT '财周（1-53）'
+    ,FSY_FROM_DT   STRING COMMENT '财周开始日期（格式：yyyy-MM-dd）'
+    ,FSY_TO_DT     STRING COMMENT '财周结束日期（格式：yyyy-MM-dd）'
+    ,FSY_DT        STRING COMMENT '财周内具体日期（格式：yyyy-MM-dd，扩展每一天）'
+)
+COMMENT '财周日历表-含日期明细版本'
+PARTITIONED BY 
+(
+    dt             STRING COMMENT '分区日期(yyyyMMdd)'
 )
 ;
