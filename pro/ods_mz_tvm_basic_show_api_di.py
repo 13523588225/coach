@@ -24,7 +24,7 @@ API_CONFIG = {
 
 # 2. ODPS配置
 ODPS_PROJECT = ODPS().project
-TARGET_TABLE = "coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di"
+TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
 
 # 3. 日期配置
 START_DT = '20260301'
@@ -39,8 +39,8 @@ REPORT_PARAMS = {
 
 # 5. 并行/批次配置（优化内存）
 PARALLEL_CONFIG = {
-    "max_workers": 2,
-    "batch_size": 5000
+    "max_workers": 10,
+    "batch_size": 20000
 }
 
 # 6. 小时粒度字段列表（h00~h23）
