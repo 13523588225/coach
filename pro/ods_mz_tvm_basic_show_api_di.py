@@ -1,15 +1,14 @@
 # -*- coding: utf-8 -*-
-import gc
-import json
-import threading
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
-from typing import Dict, List, Tuple, Any
-
 import requests
+import json
+import time
+import gc
 import urllib3
+import threading
+from datetime import datetime, timedelta
+from typing import Dict, List, Tuple, Any
 from odps import ODPS, errors
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # ===================== 全局配置 =====================
