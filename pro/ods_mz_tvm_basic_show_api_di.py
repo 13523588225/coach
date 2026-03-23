@@ -5,7 +5,7 @@ import time
 import gc
 import urllib3
 from datetime import datetime, timedelta
-from typing import Dict, List
+from typing import Dict, List, Tuple
 from odps import ODPS, errors
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -19,19 +19,18 @@ API_CONFIG = {
     "report_basic_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/reports/basic/show",
     "auth": {"username": "Coach_api", "password": "Coachapi2026"},
     "timeout": 30,
-    "request_interval": 0.01  # 请求间隔改为0.01秒
+    "request_interval": 0.01  # 请求间隔0.01秒
 }
 
 # 2. ODPS配置
 ODPS_PROJECT = ODPS().project
-TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
+TARGET_TABLE = "coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di"
 
 # 3. 日期配置
-START_DT = args['start_dt']
-END_DT = args['end_dt']
+START_DT = '20260301'
+END_DT = '20260305'
 
 # 4. 接口固定参数
-
 REPORT_PARAMS = {
     "metrics": "all",
     "by_position": "spot",
@@ -40,7 +39,8 @@ REPORT_PARAMS = {
 
 # 5. 并行/批次配置（优化内存）
 PARALLEL_CONFIG = {
-    "max_workers": 10,  # 并行数改为10
+    "campaign_max_workers": 10,  # 活动解析并行数
+    "partition_max_workers": 3,  # 分区写入并行数（根据ODPS资源调整）
     "batch_size": 20000  # 每批次写入2万条
 }
 
@@ -93,21 +93,14 @@ def is_date_in_campaign_valid(check_date: str, camp_start: str, camp_end: str) -
         return False
 
 
-def to_string(value) -> str:
-    """空值处理为字符串"""
+def to_unified_string(value) -> str:
+    """统一转换为字符串（所有字段输出为字符串，空值返回空字符串）"""
     if value is None or value == "" or value == "null":
         return ""
+    # 数值型统一转字符串（避免科学计数法）
+    if isinstance(value, (int, float)):
+        return str(int(value)) if isinstance(value, float) and value.is_integer() else str(value)
     return str(value)
-
-
-def to_bigint(value) -> int:
-    """数值转换为BIGINT，空值/非数值填0"""
-    if value is None or value == "" or value == "null":
-        return 0
-    try:
-        return int(float(value))
-    except (ValueError, TypeError):
-        return 0
 
 
 # ===================== 秒针接口调用 =====================
@@ -128,7 +121,7 @@ def get_miaozhen_token() -> str:
         access_token = token_data.get("result", {}).get("access_token")
         if not access_token:
             raise Exception("Token返回为空")
-        return to_string(access_token)
+        return to_unified_string(access_token)
     except Exception as e:
         raise Exception(f"获取Token失败：{str(e)}")
 
@@ -147,9 +140,9 @@ def get_campaign_list(token: str) -> List[Dict]:
         for c in campaigns:
             if isinstance(c, dict) and c.get("campaign_id"):
                 valid_campaigns.append({
-                    "campaign_id": to_string(c.get("campaign_id")),
-                    "camp_start_date": to_string(c.get("start_time")),
-                    "camp_end_date": to_string(c.get("end_time"))
+                    "campaign_id": to_unified_string(c.get("campaign_id")),
+                    "camp_start_date": to_unified_string(c.get("start_time")),
+                    "camp_end_date": to_unified_string(c.get("end_time"))
                 })
         print(f"✅ 采集到有效活动列表：共{len(valid_campaigns)}个")
         return valid_campaigns
@@ -157,8 +150,8 @@ def get_campaign_list(token: str) -> List[Dict]:
         raise Exception(f"采集活动列表失败：{str(e)}")
 
 
-def parse_single_campaign(token: str, campaign: Dict, daily_dt: str) -> List[List]:
-    """解析单个活动的单日期数据（pre_parse_raw_text仅保留当前行解析数据）"""
+def parse_single_campaign(token: str, campaign: Dict, daily_dt: str) -> List[List[str]]:
+    """解析单个活动的单日期数据（所有字段输出为字符串）"""
     campaign_data = []
     camp_id = campaign["campaign_id"]
     camp_start = campaign["camp_start_date"]
@@ -219,57 +212,57 @@ def parse_single_campaign(token: str, campaign: Dict, daily_dt: str) -> List[Lis
                     "attributes": attributes,
                     "metrics": metrics
                 }
-                pre_parse_raw_text = to_string(json.dumps(current_row_data, ensure_ascii=False, indent=None))
+                pre_parse_raw_text = to_unified_string(json.dumps(current_row_data, ensure_ascii=False, indent=None))
 
-                # 组装请求参数字段
+                # 组装请求参数字段（全字符串）
                 request_fields = [
-                    to_string(request_params["campaign_id"]),
-                    to_string(request_params["date"]),
-                    to_string(request_params["metrics"]),
-                    to_string(request_params["by_position"]),
-                    to_string(request_params["by_region"])
+                    to_unified_string(request_params["campaign_id"]),
+                    to_unified_string(request_params["date"]),
+                    to_unified_string(request_params["metrics"]),
+                    to_unified_string(request_params["by_position"]),
+                    to_unified_string(request_params["by_region"])
                 ]
 
-                # 组装活动基础字段
+                # 组装活动基础字段（全字符串）
                 base_fields = [
-                    to_string(result.get("campaignId")),
-                    to_string(camp_start),
-                    to_string(camp_end),
-                    to_string(result.get("date")),
-                    to_bigint(result.get("version")),
-                    to_string(attributes.get("publisher_id")),
-                    to_string(attributes.get("spot_id")),
-                    to_string(attributes.get("spot_id_str")),
-                    to_string(attributes.get("audience")),
-                    to_string(attributes.get("universe")),
-                    to_string(attributes.get("region_id")),
-                    to_bigint(metrics.get("imp_acc")),
-                    to_bigint(metrics.get("clk_acc")),
-                    to_bigint(metrics.get("uim_acc")),
-                    to_bigint(metrics.get("ucl_acc")),
-                    to_bigint(metrics.get("imp_day")),
-                    to_bigint(metrics.get("clk_day")),
-                    to_bigint(metrics.get("uim_day")),
-                    to_bigint(metrics.get("ucl_day")),
-                    to_bigint(metrics.get("imp_avg_day")),
-                    to_bigint(metrics.get("clk_avg_day")),
-                    to_bigint(metrics.get("uim_avg_day")),
-                    to_bigint(metrics.get("ucl_avg_day")),
+                    to_unified_string(result.get("campaignId")),
+                    to_unified_string(camp_start),
+                    to_unified_string(camp_end),
+                    to_unified_string(result.get("date")),
+                    to_unified_string(result.get("version")),
+                    to_unified_string(attributes.get("publisher_id")),
+                    to_unified_string(attributes.get("spot_id")),
+                    to_unified_string(attributes.get("spot_id_str")),
+                    to_unified_string(attributes.get("audience")),
+                    to_unified_string(attributes.get("universe")),
+                    to_unified_string(attributes.get("region_id")),
+                    to_unified_string(metrics.get("imp_acc")),
+                    to_unified_string(metrics.get("clk_acc")),
+                    to_unified_string(metrics.get("uim_acc")),
+                    to_unified_string(metrics.get("ucl_acc")),
+                    to_unified_string(metrics.get("imp_day")),
+                    to_unified_string(metrics.get("clk_day")),
+                    to_unified_string(metrics.get("uim_day")),
+                    to_unified_string(metrics.get("ucl_day")),
+                    to_unified_string(metrics.get("imp_avg_day")),
+                    to_unified_string(metrics.get("clk_avg_day")),
+                    to_unified_string(metrics.get("uim_avg_day")),
+                    to_unified_string(metrics.get("ucl_avg_day")),
                 ]
 
-                # 组装小时粒度曝光指标
-                imp_hour_fields = [to_bigint(metrics.get(f"imp_{hour}")) for hour in HOUR_FIELDS]
+                # 组装小时粒度曝光指标（全字符串）
+                imp_hour_fields = [to_unified_string(metrics.get(f"imp_{hour}")) for hour in HOUR_FIELDS]
 
-                # 组装小时粒度点击指标
-                clk_hour_fields = [to_bigint(metrics.get(f"clk_{hour}")) for hour in HOUR_FIELDS]
+                # 组装小时粒度点击指标（全字符串）
+                clk_hour_fields = [to_unified_string(metrics.get(f"clk_{hour}")) for hour in HOUR_FIELDS]
 
-                # 组装元数据字段
+                # 组装元数据字段（全字符串）
                 meta_fields = [
                     pre_parse_raw_text,
-                    etl_datetime
+                    to_unified_string(etl_datetime)
                 ]
 
-                # 合并所有字段
+                # 合并所有字段（全字符串列表）
                 write_row = request_fields + base_fields + imp_hour_fields + clk_hour_fields + meta_fields
                 campaign_data.append(write_row)
 
@@ -281,9 +274,35 @@ def parse_single_campaign(token: str, campaign: Dict, daily_dt: str) -> List[Lis
     return campaign_data
 
 
+def process_single_partition(token: str, campaign_list: List[Dict], daily_dt: str) -> Tuple[str, List[List[str]]]:
+    """处理单个分区（解析+数据组装），返回分区日期和数据"""
+    print(f"\n🚀 开始处理分区：{daily_dt}")
+    partition_data = []
+
+    # 并行解析活动数据
+    with ThreadPoolExecutor(max_workers=PARALLEL_CONFIG["campaign_max_workers"]) as executor:
+        future_to_campaign = {
+            executor.submit(parse_single_campaign, token, campaign, daily_dt): campaign
+            for campaign in campaign_list
+        }
+
+        # 收集结果
+        for future in as_completed(future_to_campaign):
+            try:
+                campaign_data = future.result()
+                if campaign_data:
+                    partition_data.extend(campaign_data)
+            except Exception as e:
+                print(f"❌ 分区{daily_dt} - 活动解析失败：{str(e)}")
+                continue
+
+    print(f"✅ 分区{daily_dt} - 解析完成，共生成{len(partition_data)}条数据")
+    return (daily_dt, partition_data)
+
+
 # ===================== ODPS写入 =====================
-def write_to_odps_partition(table_name: str, data: List[List], dt_partition: str):
-    """按分区写入ODPS（增加批次执行时间+明细打印）"""
+def write_to_odps_partition(table_name: str, data: List[List[str]], dt_partition: str):
+    """按分区写入ODPS（所有字段为字符串，记录批次耗时）"""
     if not data:
         print(f"⚠️ 分区{dt_partition}无数据可写入，跳过")
         return
@@ -303,7 +322,7 @@ def write_to_odps_partition(table_name: str, data: List[List], dt_partition: str
         if table.exist_partition(partition_spec):
             drop_sql = f"ALTER TABLE {table_name} DROP PARTITION ({partition_spec})"
             o.execute_sql(drop_sql)
-            print(f"✅ 已清空分区：{dt_partition}")
+            print(f"✅ 分区{dt_partition} - 已清空历史数据")
 
         # 打印批次规划信息
         print(f"📊 分区{dt_partition} - 总数据量{total_count}条，分{batch_num}批次写入（每批次{batch_size}条）")
@@ -319,7 +338,7 @@ def write_to_odps_partition(table_name: str, data: List[List], dt_partition: str
             batch_data = data[start_idx:end_idx]
             batch_actual_count = len(batch_data)
 
-            # 写入当前批次
+            # 写入当前批次（所有字段为字符串，适配ODPS表）
             with table.open_writer(partition=partition_spec, create_partition=True) as writer:
                 writer.write(batch_data)
 
@@ -344,7 +363,7 @@ def write_to_odps_partition(table_name: str, data: List[List], dt_partition: str
 
 # ===================== 主流程 =====================
 def main():
-    """核心执行流程"""
+    """核心执行流程（分区并行执行插入）"""
     try:
         # 记录任务总开始时间
         task_start_time = time.time()
@@ -353,7 +372,8 @@ def main():
         print(f"===== 任务开始：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
         print(f"分区范围：{START_DT} ~ {END_DT} | 目标表：{TARGET_TABLE}")
         print(
-            f"并行配置：max_workers={PARALLEL_CONFIG['max_workers']} | 批次大小={PARALLEL_CONFIG['batch_size']} | 请求间隔={API_CONFIG['request_interval']}秒")
+            f"并行配置：活动解析={PARALLEL_CONFIG['campaign_max_workers']} | 分区写入={PARALLEL_CONFIG['partition_max_workers']} | 批次大小={PARALLEL_CONFIG['batch_size']}")
+        print(f"接口配置：请求间隔={API_CONFIG['request_interval']}秒 | 所有字段输出为字符串")
 
         # 1. 获取Token
         token = get_miaozhen_token()
@@ -368,43 +388,44 @@ def main():
         daily_partition_dates = get_date_range_by_start_end(START_DT, END_DT)
         print(f"✅ 生成每日分区：共{len(daily_partition_dates)}天")
 
-        # 4. 按日期处理数据
-        for daily_dt in daily_partition_dates:
-            print(f"\n========== 处理分区日期：{daily_dt} ==========")
-            daily_write_data = []
+        # 4. 并行解析所有分区数据（先解析，再并行写入）
+        partition_data_map = {}
+        with ThreadPoolExecutor(max_workers=PARALLEL_CONFIG["campaign_max_workers"]) as parse_executor:
+            future_to_partition = {
+                parse_executor.submit(process_single_partition, token, campaign_list, dt): dt
+                for dt in daily_partition_dates
+            }
 
-            # 并行解析（max_workers=10）
-            with ThreadPoolExecutor(max_workers=PARALLEL_CONFIG["max_workers"]) as executor:
-                future_to_campaign = {
-                    executor.submit(parse_single_campaign, token, campaign, daily_dt): campaign
-                    for campaign in campaign_list
-                }
+            for future in as_completed(future_to_partition):
+                dt = future_to_partition[future]
+                try:
+                    partition_dt, partition_data = future.result()
+                    partition_data_map[partition_dt] = partition_data
+                except Exception as e:
+                    print(f"❌ 分区{dt}解析失败：{str(e)}")
+                    continue
 
-                # 收集结果
-                for future in as_completed(future_to_campaign):
-                    try:
-                        campaign_data = future.result()
-                        if campaign_data:
-                            daily_write_data.extend(campaign_data)
-                    except Exception as e:
-                        print(f"❌ 活动解析失败：{str(e)}")
-                        continue
+        # 5. 并行写入所有分区数据
+        with ThreadPoolExecutor(max_workers=PARALLEL_CONFIG["partition_max_workers"]) as write_executor:
+            future_to_write = {
+                write_executor.submit(write_to_odps_partition, TARGET_TABLE, data, dt): dt
+                for dt, data in partition_data_map.items()
+            }
 
-            # 写入ODPS
-            if daily_write_data:
-                write_to_odps_partition(TARGET_TABLE, daily_write_data, daily_dt)
-            else:
-                print(f"⚠️ 分区{daily_dt}无有效数据，跳过写入")
-
-            # 释放内存
-            del daily_write_data
-            gc.collect()
+            # 等待所有分区写入完成
+            for future in as_completed(future_to_write):
+                dt = future_to_write[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    print(f"❌ 分区{dt}写入失败：{str(e)}")
+                    continue
 
         # 计算任务总耗时
         task_cost_time = round(time.time() - task_start_time, 2)
         # 任务结束
         print(f"\n===== 任务完成：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
-        print(f"📈 任务总耗时：{task_cost_time}秒")
+        print(f"📈 任务总耗时：{task_cost_time}秒 | 处理分区数：{len(partition_data_map)}")
     except Exception as e:
         print(f"❌ 任务执行失败：{str(e)}")
         raise
