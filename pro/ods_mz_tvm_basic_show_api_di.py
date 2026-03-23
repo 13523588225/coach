@@ -19,12 +19,12 @@ API_CONFIG = {
     "report_basic_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/reports/basic/show",
     "auth": {"username": "Coach_api", "password": "Coachapi2026"},
     "timeout": 30,
-    "request_interval": 0.05
+    "request_interval": 0.01  # 请求间隔改为0.01秒
 }
 
 # 2. ODPS配置
 ODPS_PROJECT = ODPS().project
-TARGET_TABLE = "coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di"
+TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
 
 # 3. 日期配置
 START_DT = '20260301'
@@ -39,8 +39,8 @@ REPORT_PARAMS = {
 
 # 5. 并行/批次配置（优化内存）
 PARALLEL_CONFIG = {
-    "max_workers": 2,
-    "batch_size": 5000
+    "max_workers": 10,  # 并行数改为10
+    "batch_size": 20000  # 每批次写入2万条
 }
 
 # 6. 小时粒度字段列表（h00~h23）
@@ -282,7 +282,7 @@ def parse_single_campaign(token: str, campaign: Dict, daily_dt: str) -> List[Lis
 
 # ===================== ODPS写入 =====================
 def write_to_odps_partition(table_name: str, data: List[List], dt_partition: str):
-    """按分区写入ODPS"""
+    """按分区写入ODPS（增加批次执行时间+明细打印）"""
     if not data:
         print(f"⚠️ 分区{dt_partition}无数据可写入，跳过")
         return
@@ -293,29 +293,48 @@ def write_to_odps_partition(table_name: str, data: List[List], dt_partition: str
 
     table = o.get_table(table_name)
     partition_spec = f"dt='{dt_partition}'"
+    batch_size = PARALLEL_CONFIG["batch_size"]
+    total_count = len(data)
+    batch_num = (total_count + batch_size - 1) // batch_size  # 向上取整计算总批次
 
     try:
         # 清空已有分区
         if table.exist_partition(partition_spec):
             drop_sql = f"ALTER TABLE {table_name} DROP PARTITION ({partition_spec})"
             o.execute_sql(drop_sql)
+            print(f"✅ 已清空分区：{dt_partition}")
 
-        # 分批写入
-        batch_size = PARALLEL_CONFIG["batch_size"]
-        total_count = len(data)
-        batch_num = (total_count + batch_size - 1) // batch_size
+        # 打印批次规划信息
+        print(f"📊 分区{dt_partition} - 总数据量{total_count}条，分{batch_num}批次写入（每批次{batch_size}条）")
 
+        # 分批写入（记录每个批次耗时）
+        total_batch_time = 0  # 累计所有批次耗时
         for i in range(batch_num):
+            # 记录批次开始时间
+            batch_start_time = time.time()
+
             start_idx = i * batch_size
             end_idx = min((i + 1) * batch_size, total_count)
             batch_data = data[start_idx:end_idx]
+            batch_actual_count = len(batch_data)
 
+            # 写入当前批次
             with table.open_writer(partition=partition_spec, create_partition=True) as writer:
                 writer.write(batch_data)
 
+            # 计算批次耗时（保留2位小数）
+            batch_cost_time = round(time.time() - batch_start_time, 2)
+            total_batch_time += batch_cost_time
+
+            # 打印当前批次进度+耗时
+            print(
+                f"🔄 分区{dt_partition} - 批次{i + 1}/{batch_num}：写入{batch_actual_count}条（范围：{start_idx + 1}~{end_idx}），耗时{batch_cost_time}秒")
             gc.collect()
 
-        print(f"✅ 分区{dt_partition}写入完成，总条数：{total_count}")
+        # 打印分区写入完成总结（含总耗时）
+        total_batch_time = round(total_batch_time, 2)
+        print(
+            f"✅ 分区{dt_partition}写入完成，累计写入{total_count}条，总耗时{total_batch_time}秒，平均每批次{round(total_batch_time / batch_num, 2)}秒")
     except errors.ODPSError as e:
         raise Exception(f"ODPS写入失败：{str(e)}")
     except Exception as e:
@@ -326,10 +345,14 @@ def write_to_odps_partition(table_name: str, data: List[List], dt_partition: str
 def main():
     """核心执行流程"""
     try:
+        # 记录任务总开始时间
+        task_start_time = time.time()
+
         # 初始化日志
         print(f"===== 任务开始：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
         print(f"分区范围：{START_DT} ~ {END_DT} | 目标表：{TARGET_TABLE}")
-        print(f"并行配置：max_workers={PARALLEL_CONFIG['max_workers']} | batch_size={PARALLEL_CONFIG['batch_size']}")
+        print(
+            f"并行配置：max_workers={PARALLEL_CONFIG['max_workers']} | 批次大小={PARALLEL_CONFIG['batch_size']} | 请求间隔={API_CONFIG['request_interval']}秒")
 
         # 1. 获取Token
         token = get_miaozhen_token()
@@ -349,7 +372,7 @@ def main():
             print(f"\n========== 处理分区日期：{daily_dt} ==========")
             daily_write_data = []
 
-            # 并行解析
+            # 并行解析（max_workers=10）
             with ThreadPoolExecutor(max_workers=PARALLEL_CONFIG["max_workers"]) as executor:
                 future_to_campaign = {
                     executor.submit(parse_single_campaign, token, campaign, daily_dt): campaign
@@ -376,8 +399,11 @@ def main():
             del daily_write_data
             gc.collect()
 
+        # 计算任务总耗时
+        task_cost_time = round(time.time() - task_start_time, 2)
         # 任务结束
         print(f"\n===== 任务完成：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
+        print(f"📈 任务总耗时：{task_cost_time}秒")
     except Exception as e:
         print(f"❌ 任务执行失败：{str(e)}")
         raise
