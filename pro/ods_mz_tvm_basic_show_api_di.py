@@ -27,10 +27,11 @@ ODPS_PROJECT = ODPS().project
 TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
 
 # 3. 日期配置
-START_DT = '20260301'
-END_DT = '20260305'
+START_DT = args['start_dt']
+END_DT = args['end_dt']
 
 # 4. 接口固定参数
+
 REPORT_PARAMS = {
     "metrics": "all",
     "by_position": "spot",
