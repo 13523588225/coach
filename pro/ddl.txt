@@ -209,9 +209,9 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di 
     pre_parse_raw_text STRING COMMENT '当前行对应的解析数据（attributes+metrics）',
     etl_datetime STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
 )
+COMMENT '秒针TVM基础曝光报表ODS层表（包含report_basic_url所有参数）'
 PARTITIONED BY (dt STRING COMMENT '分区日期(yyyyMMdd)')
-STORED AS ORC
-COMMENT '秒针TVM基础曝光报表ODS层表（包含report_basic_url所有参数）';
+;
 
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.dim_fiscal_date
 (
