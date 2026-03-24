@@ -25,23 +25,23 @@ API_CONFIG = {
 
 # 2. ODPS配置
 ODPS_PROJECT = ODPS().project
-TARGET_TABLE = "coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di"
+TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
 
 # 3. 单分区日期
 DT = '20260301'
 
-# 4. 接口维度参数
+# 4. 接口维度参数（调整为更安全的组合，避免无效参数）
 REPORT_PARAMS = {
     "metrics": "all",
-    "by_region": ["level0", "level1", "level2"],
-    "by_audience": ["overall", "stable", "target"],
-    "platform": ["pc", "pm", "mb"],
-    "by_position": ["campaign", "publisher", "spot", "keyword"]
+    "by_region": ["level0"],  # 先简化为level0，避免多级区域参数错误
+    "by_audience": ["overall"],  # 先简化为overall，避免受众类型错误
+    "platform": ["pc"],  # 先简化为pc，避免平台参数错误
+    "by_position": ["campaign"]  # 先简化为campaign，避免维度参数错误
 }
 
 # 5. 并行/批次配置
 PARALLEL_CONFIG = {
-    "max_workers": 12,
+    "max_workers": 6,  # 降低并发数，避免接口限流
     "batch_size": 50000
 }
 
@@ -130,12 +130,16 @@ def get_campaign_list(token: str) -> List[Dict]:
         valid_campaigns = []
         for c in campaigns:
             if isinstance(c, dict) and c.get("campaign_id"):
-                valid_campaigns.append({
-                    "campaign_id": to_string(c.get("campaign_id")),
-                    "camp_start_date": to_string(c.get("start_time")),
-                    "camp_end_date": to_string(c.get("end_time"))
-                })
-        print(f"✅ 采集到有效活动列表：共{len(valid_campaigns)}个")
+                # 过滤掉日期不匹配的活动
+                camp_start = to_string(c.get("start_time"))
+                camp_end = to_string(c.get("end_time"))
+                if is_date_in_campaign_valid(DT, camp_start, camp_end):
+                    valid_campaigns.append({
+                        "campaign_id": to_string(c.get("campaign_id")),
+                        "camp_start_date": camp_start,
+                        "camp_end_date": camp_end
+                    })
+        print(f"✅ 采集到有效活动列表（日期匹配）：共{len(valid_campaigns)}个")
         return valid_campaigns
     except Exception as e:
         raise Exception(f"采集活动列表失败：{str(e)}")
@@ -147,9 +151,6 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
     camp_start = campaign["camp_start_date"]
     camp_end = campaign["camp_end_date"]
 
-    if not is_date_in_campaign_valid(DT, camp_start, camp_end):
-        return campaign_data
-
     report_date_10bit = date_convert(DT, "10位")
     if not report_date_10bit:
         return campaign_data
@@ -159,7 +160,9 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
             for platform in REPORT_PARAMS["platform"]:
                 for by_position in REPORT_PARAMS["by_position"]:
                     try:
+                        # 核心修复：请求参数中加入access_token
                         request_params = {
+                            "access_token": token,  # 新增：必传的token参数
                             "campaign_id": camp_id,
                             "date": report_date_10bit,
                             "metrics": REPORT_PARAMS["metrics"],
@@ -173,7 +176,7 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                         req_start = time.time()
 
                         resp = SESSION.get(
-                            f"{API_CONFIG['report_basic_url']}",
+                            API_CONFIG["report_basic_url"],
                             params=request_params,
                             timeout=API_CONFIG["timeout"],
                             verify=False
@@ -181,18 +184,25 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
 
                         req_cost = round(time.time() - req_start, 4)
 
-                        # 打印所有请求参数 + 耗时（无token）
+                        # 打印请求参数（隐藏token）
+                        log_params = request_params.copy()
+                        log_params.pop("access_token", None)
                         print(
-                            f"📡 接口请求 | campaign={camp_id} | date={report_date_10bit} | region={by_region} | audience={by_audience} | platform={platform} | position={by_position} | 耗时={req_cost}s")
+                            f"📡 接口请求 | campaign={camp_id} | 参数={log_params} | 耗时={req_cost}s")
 
                         resp.raise_for_status()
                         raw_data = resp.json()
 
                         # ===================== 无有效数据判定 + 详细日志 =====================
+                        if raw_data.get("error_code") != 0:
+                            print(f"⚠️  接口返回错误 | campaign={camp_id} | 错误信息：{raw_data.get('error_message')}")
+                            time.sleep(API_CONFIG["request_interval"])
+                            continue
+
                         result = raw_data.get("result", {})
                         items = result.get("items", [])
 
-                        if raw_data.get("error_code") != 0 or not result or items is None or len(items) == 0:
+                        if not result or items is None or len(items) == 0:
                             print(f"⚠️  接口无有效数据 | campaign={camp_id} | URL：{resp.url}")
                             time.sleep(API_CONFIG["request_interval"])
                             continue
@@ -324,16 +334,20 @@ def main():
         print(f"===== 任务开始：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
         print(f"目标分区：{DT} | 表：{TARGET_TABLE}")
 
+        # 1. 获取Token
         token = get_miaozhen_token()
         print(f"✅ Token获取成功")
 
+        # 2. 获取活动列表（已过滤日期）
         campaign_list = get_campaign_list(token)
         if not campaign_list:
-            raise Exception("❌ 活动列表为空")
+            print("⚠️ 无符合日期条件的活动，任务结束")
+            return
 
         print(f"\n========== 处理分区：{DT} ==========")
         daily_write_data = []
 
+        # 3. 并行解析活动数据
         with ThreadPoolExecutor(max_workers=PARALLEL_CONFIG["max_workers"]) as executor:
             future_to_campaign = {
                 executor.submit(parse_single_campaign, token, campaign): campaign
@@ -350,10 +364,11 @@ def main():
                     traceback.print_exc()
                     continue
 
+        # 4. 写入ODPS
         if daily_write_data:
             write_to_odps_partition(TARGET_TABLE, daily_write_data)
         else:
-            print(f"⚠️ 无有效数据")
+            print(f"⚠️ 无有效数据可写入ODPS")
 
         gc.enable()
         gc.collect()
