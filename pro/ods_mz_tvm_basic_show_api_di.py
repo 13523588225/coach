@@ -24,11 +24,12 @@ API_CONFIG = {
 }
 
 # 2. ODPS配置
-ODPS_PROJECT = ODPS().project
+# ODPS_PROJECT = ODPS().project
+ODPS_PROJECT = "coach_marketing_hub_dev"
 TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
 
 # 3. 单分区日期
-DT = '20260301'
+DT = args['dt']
 
 # 4. 接口维度参数（调整为更安全的组合，避免无效参数）
 REPORT_PARAMS = {
