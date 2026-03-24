@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-秒针广告API采集 - 极速入库版
-【终极提速】一次性批量写入 MaxCompute，速度提升 100 倍
+秒针广告API采集 - 最终版（字段严格匹配用户表结构）
 API并行：10
-写入：一次性批量写入
+写入：一次性极速写入MaxCompute
+功能：metrics为空 → 自动跳过不入库
 """
 import json
 import time
@@ -45,12 +45,12 @@ CONFIG = {
     }
 }
 
-# 全局数据列表
+# 全局数据
 all_data = []
 total_collected = 0
 
 
-# ===================== 工具 =====================
+# ===================== 工具方法 =====================
 def get_log():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -75,7 +75,7 @@ def is_in_range(start, end, check):
         return False
 
 
-# ===================== API 采集 =====================
+# ===================== API 认证 =====================
 def get_token():
     s = time.time()
     resp = requests.post(CONFIG["api"]["token_url"], data=CONFIG["api"]["auth"], timeout=60, verify=False)
@@ -85,6 +85,7 @@ def get_token():
     return token
 
 
+# ===================== 获取活动列表 =====================
 def get_campaigns(token):
     s = time.time()
     resp = requests.get(f"{CONFIG['api']['campaign_url']}?access_token={token}", timeout=60, verify=False)
@@ -100,6 +101,7 @@ def get_campaigns(token):
     return camps
 
 
+# ===================== 拉取报表数据 =====================
 def fetch_task(task, token, dt):
     global total_collected
     camp, reg, aud, plt, pos = task
@@ -124,61 +126,88 @@ def fetch_task(task, token, dt):
         resp.raise_for_status()
         data = resp.json()
         items = data.get("items", [])
+        raw_response = resp.text
 
         rows = []
         for item in items:
             attr = item.get("attributes", {})
             metric = item.get("metrics", {})
+
+            # ===================== 核心：metrics 为空直接跳过 =====================
+            if not metric or len(metric) == 0:
+                continue
+
+            # 【字段顺序 100% 匹配你的 CREATE TABLE】
             row = [
-                safe_str(cid), safe_str(camp["start_date"]), safe_str(camp["end_date"]), safe_str(data.get("date")),
-                safe_str(pos), safe_str(reg), "all", safe_str(aud), safe_str(plt),
-                safe_str(data.get("version")), safe_str(data.get("platform")), safe_str(data.get("total_spot_num")),
-                safe_str(attr.get("audience")), safe_str(attr.get("publisher_id")), safe_str(attr.get("spot_id")),
-                safe_str(attr.get("region_id")), safe_str(attr.get("universe")),
-                safe_str(metric.get("imp_acc")), safe_str(metric.get("clk_acc")), safe_str(metric.get("uim_acc")),
-                safe_str(metric.get("ucl_acc")),
-                safe_str(metric.get("imp_day")), safe_str(metric.get("clk_day")), safe_str(metric.get("uim_day")),
-                safe_str(metric.get("ucl_day")),
-                safe_str(metric.get("imp_avg_day")), safe_str(metric.get("clk_avg_day")),
-                safe_str(metric.get("uim_avg_day")), safe_str(metric.get("ucl_avg_day")),
-                safe_str(metric.get("imp_h00")), safe_str(metric.get("imp_h23")),
-                safe_str(metric.get("clk_h00")), safe_str(metric.get("clk_h23")),
-                json.dumps(params, ensure_ascii=False),
-                json.dumps(item, ensure_ascii=False),
-                get_log()
+                safe_str(cid),  # campaign_id
+                safe_str(camp["start_date"]),  # campaign_start_date
+                safe_str(camp["end_date"]),  # campaign_end_date
+                safe_str(data.get("date")),  # report_day_date
+                safe_str(pos),  # by_position
+                safe_str(reg),  # by_region
+                "all",  # metrics
+                safe_str(aud),  # by_audience
+                safe_str(plt),  # platform
+                safe_str(data.get("version")),  # s_version
+                safe_str(data.get("platform")),  # platform_resp
+                safe_str(data.get("total_spot_num")),  # total_spot_num
+                safe_str(attr.get("audience")),  # audience
+                safe_str(attr.get("target_id")),  # target_id
+                safe_str(attr.get("publisher_id")),  # publisher_id
+                safe_str(attr.get("spot_id")),  # spot_id
+                safe_str(attr.get("keyword_id")),  # keyword_id
+                safe_str(attr.get("region_id")),  # region_id
+                safe_str(attr.get("universe")),  # universe
+                safe_str(metric.get("imp_acc")),  # imp_acc
+                safe_str(metric.get("clk_acc")),  # clk_acc
+                safe_str(metric.get("uim_acc")),  # uim_acc
+                safe_str(metric.get("ucl_acc")),  # ucl_acc
+                safe_str(metric.get("imp_day")),  # imp_day
+                safe_str(metric.get("clk_day")),  # clk_day
+                safe_str(metric.get("uim_day")),  # uim_day
+                safe_str(metric.get("ucl_day")),  # ucl_day
+                safe_str(metric.get("imp_avg_day")),  # imp_avg_day
+                safe_str(metric.get("clk_avg_day")),  # clk_avg_day
+                safe_str(metric.get("uim_avg_day")),  # uim_avg_day
+                safe_str(metric.get("ucl_avg_day")),  # ucl_avg_day
+                safe_str(metric.get("imp_h00")),  # imp_acc_h00
+                safe_str(metric.get("imp_h23")),  # imp_acc_h23
+                safe_str(metric.get("clk_h00")),  # clk_acc_h00
+                safe_str(metric.get("clk_h23")),  # clk_acc_h23
+                json.dumps(params, ensure_ascii=False),  # request_params
+                raw_response,  # pre_parse_raw_text
+                get_log()  # etl_datetime
             ]
             rows.append(row)
 
         all_data.extend(rows)
         total_collected += len(rows)
-        print(f"[{get_log()}] 📥 {cid} | {len(rows)} 条 | 总计 {total_collected}")
+        print(f"[{get_log()}] 📥 {cid} | {len(rows)} 条 | 总计有效：{total_collected}")
 
     except Exception as e:
         return
 
 
-# ===================== 【极速写入】一次性批量写入 =====================
+# ===================== 极速写入 MaxCompute =====================
 def write_all_to_odps(dt, data_list):
     if not data_list:
-        print("❌ 无数据可写入")
+        print("❌ 无有效数据可写入")
         return
 
     odps = ODPS(project=ODPS_PROJECT)
     table = odps.get_table(CONFIG["odps"]["table_name"])
     partition = f"dt='{dt}'"
 
-    # 删除旧分区
     try:
         odps.execute_sql(f"ALTER TABLE {CONFIG['odps']['table_name']} DROP PARTITION IF EXISTS ({partition})")
     except:
         pass
 
-    # 极速写入：一次性提交所有数据（官方最快方式）
-    print(f"[{get_log()}] ✍️  开始一次性写入 {len(data_list)} 条数据...")
+    print(f"[{get_log()}] ✍️  开始写入 {len(data_list)} 条数据...")
     start = time.time()
 
     with table.open_writer(partition=partition, create_partition=True) as writer:
-        writer.write(data_list)  # 一次性写入，无循环、无等待
+        writer.write(data_list)
 
     print(f"[{get_log()}] ✅ 写入完成！耗时 {round(time.time() - start, 2)}s")
 
@@ -187,18 +216,14 @@ def write_all_to_odps(dt, data_list):
 def main():
     dt = CONFIG["odps"]["dt"]
     check_dt = format_date(dt)
-    print(f"[{get_log()}] 🚀 开始采集（API并行10，最终一次性入库）")
+    print(f"[{get_log()}] 🚀 开始采集（API并行10 | 空metrics自动跳过）")
 
-    # 1. 获取token
     token = get_token()
-
-    # 2. 获取活动
     camps = get_campaigns(token)
     if not camps:
-        print("❌ 无活动")
+        print("❌ 无有效活动")
         return
 
-    # 3. 生成任务
     tasks = []
     for c in camps:
         for r in CONFIG["report_params"]["by_region_list"]:
@@ -207,18 +232,16 @@ def main():
                     for pos in CONFIG["report_params"]["by_position_list"]:
                         tasks.append((c, r, a, p, pos))
 
-    # 4. 并行采集
     with ThreadPoolExecutor(CONFIG["api"]["api_workers"]) as pool:
         futures = [pool.submit(fetch_task, t, token, check_dt) for t in tasks]
         wait(futures)
 
-    # 5. 【极速】一次性写入 MaxCompute
     write_all_to_odps(dt, all_data)
 
     print("\n" + "=" * 50)
-    print(f"[{get_log()}] 🎉 全部完成")
-    print(f"总采集：{total_collected} 条")
-    print(f"总写入：{len(all_data)} 条")
+    print(f"[{get_log()}] 🎉 任务全部完成")
+    print(f"总有效数据：{total_collected} 条")
+    print(f"成功写入：{len(all_data)} 条")
     print("=" * 50)
 
 
