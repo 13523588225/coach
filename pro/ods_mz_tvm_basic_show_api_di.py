@@ -4,6 +4,7 @@ import json
 import time
 import gc
 import urllib3
+import traceback
 from datetime import datetime
 from typing import Dict, List
 from odps import ODPS, errors
@@ -182,25 +183,26 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
 
                         # 打印所有请求参数 + 耗时（无token）
                         print(
-                            f"📡 接口请求 | campaign={camp_id} | date={report_date_10bit} | metrics={REPORT_PARAMS['metrics']} | region={by_region} | audience={by_audience} | platform={platform} | position={by_position} | 耗时={req_cost}s")
+                            f"📡 接口请求 | campaign={camp_id} | date={report_date_10bit} | region={by_region} | audience={by_audience} | platform={platform} | position={by_position} | 耗时={req_cost}s")
 
                         resp.raise_for_status()
                         raw_data = resp.json()
 
-                        # ===================== 【新增】无有效数据 → 打印完整URL =====================
-                        if raw_data.get("error_code") != 0 or not raw_data.get("result", {}).get("items"):
-                            print(f"⚠️  接口无有效数据返回 | 完整URL：{resp.url}")
-                            time.sleep(API_CONFIG["request_interval"])
-                            continue
-                        # ==========================================================================
-
+                        # ===================== 无有效数据判定 + 详细日志 =====================
                         result = raw_data.get("result", {})
+                        items = result.get("items", [])
+
+                        if raw_data.get("error_code") != 0 or not result or items is None or len(items) == 0:
+                            print(f"⚠️  接口无有效数据 | campaign={camp_id} | URL：{resp.url}")
+                            time.sleep(API_CONFIG["request_interval"])
+                            continue
+                        # ======================================================================
+
                         if not all([result.get("date"), result.get("campaignId"), result.get("items")]):
-                            print(f"⚠️  接口返回数据不完整 | 完整URL：{resp.url}")
+                            print(f"⚠️  接口返回数据不完整 | campaign={camp_id} | URL：{resp.url}")
                             time.sleep(API_CONFIG["request_interval"])
                             continue
 
-                        items = result.get("items", [])
                         etl_datetime = get_etl_time()
 
                         for item in items:
@@ -255,7 +257,13 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                             campaign_data.append(write_row)
 
                         time.sleep(API_CONFIG["request_interval"])
-                    except Exception:
+
+                    # ===================== 【关键】捕获所有异常并打印详细堆栈 =====================
+                    except Exception as e:
+                        print(f"❌ 接口请求失败 | campaign={camp_id}")
+                        print(f"❌ 错误信息：{str(e)}")
+                        print(f"❌ 完整堆栈：")
+                        traceback.print_exc()
                         time.sleep(API_CONFIG["request_interval"])
                         continue
 
@@ -339,6 +347,7 @@ def main():
                         daily_write_data.extend(campaign_data)
                 except Exception as e:
                     print(f"❌ 活动解析失败：{str(e)}")
+                    traceback.print_exc()
                     continue
 
         if daily_write_data:
@@ -355,6 +364,7 @@ def main():
 
     except Exception as e:
         print(f"❌ 任务失败：{str(e)}")
+        traceback.print_exc()
         raise
 
 
