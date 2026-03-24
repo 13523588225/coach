@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-秒针广告API数据采集 - 生产最终版
+秒针广告API数据采集 - 生产正式版
 功能：
-1. 写入 MaxCompute
-2. 分区写入并行度：3
-3. 仅存储本行解析对应原始数据片段
-4. 无多余日志打印
-5. 活动时间严格校验
-6. 防OOM + 高并发
+1. 写入MaxCompute
+2. 分区写入并行度：10
+3. 每批次写入：20000 条
+4. 日志：时间戳 + API耗时 + 写入耗时
+5. 仅存储本行解析原始片段
+6. 活动时间严格校验
+7. 防OOM、高并发、生产稳定
 """
 import json
 import threading
@@ -29,9 +30,9 @@ CONFIG = {
     "odps": {
         "project": ODPS_PROJECT,
         "table_name": "ods_mz_adm_basic_show_api_di",
-        "batch_size": 2000,
+        "batch_size": 20000,    # 每批次写入 20000 条
         "dt": "20260301",
-        "write_workers": 3  # 分区写入并行度 = 3
+        "write_workers": 10     # 分区写入并行度 10
     },
     "report_params": {
         "metrics": "all",
@@ -57,13 +58,16 @@ CONFIG = {
 }
 
 # ===================== 全局变量 =====================
-write_queue = Queue(maxsize=2000)
+write_queue = Queue(maxsize=30000)
 write_finished = False
 total_written = 0
 total_collected = 0
 skip_campaign_count = 0
 
 # ===================== 工具方法 =====================
+def get_log_time():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
 def safe_str(val):
     if val is None or val == "" or val == "-" or val in ("null", "undefined"):
         return None
@@ -106,6 +110,7 @@ def write_worker(odps_writer, partition_dt):
             odps_writer.write(batch)
             cost_time = round(time.time() - start_time, 3)
             total_written += len(batch)
+            print(f"[{get_log_time()}] ✅ 写入分区 {partition_dt} | 批次 {len(batch)} 条 | 写入耗时 {cost_time}s | 累计 {total_written}")
 
 def write_worker_pool(partition_dt):
     writers = [init_odps_writer(partition_dt) for _ in range(CONFIG["odps"]["write_workers"])]
@@ -116,16 +121,22 @@ def write_worker_pool(partition_dt):
 # ===================== API 采集 =====================
 def get_miaozhen_token():
     try:
+        start = time.time()
         resp = requests.post(CONFIG["api"]["token_url"], data=CONFIG["api"]["auth"], timeout=60, verify=False)
         resp.raise_for_status()
+        cost = round(time.time() - start, 3)
+        print(f"[{get_log_time()}] 🔑 获取Token成功 | 耗时 {cost}s")
         return resp.json()["access_token"]
     except Exception as e:
+        print(f"[{get_log_time()}] ❌ 获取Token失败")
         raise
 
 def get_valid_campaign_list(token):
     try:
+        start = time.time()
         resp = requests.get(f"{CONFIG['api']['campaign_url']}?access_token={token}", timeout=60, verify=False)
         resp.raise_for_status()
+        cost = round(time.time() - start, 3)
         campaign_list = []
         for camp in resp.json():
             camp_id = camp.get("campaign_id")
@@ -133,8 +144,10 @@ def get_valid_campaign_list(token):
             end_date = camp.get("end_date")
             if camp_id and start_date and end_date:
                 campaign_list.append({"campaign_id": str(camp_id), "start_date": start_date, "end_date": end_date})
+        print(f"[{get_log_time()}] 📋 获取活动列表成功 | 总数 {len(campaign_list)} | 耗时 {cost}s")
         return campaign_list
     except Exception as e:
+        print(f"[{get_log_time()}] ❌ 获取活动列表失败")
         raise
 
 def collect_report_data(token, campaign, check_date, by_region, by_audience, platform, by_position):
@@ -147,8 +160,8 @@ def collect_report_data(token, campaign, check_date, by_region, by_audience, pla
         skip_campaign_count += 1
         return
 
-    while write_queue.qsize() > 1800:
-        time.sleep(0.05)
+    while write_queue.qsize() > 25000:
+        time.sleep(0.1)
 
     params = {
         "access_token": token,
@@ -162,11 +175,16 @@ def collect_report_data(token, campaign, check_date, by_region, by_audience, pla
     }
 
     try:
+        api_start = time.time()
         resp = requests.get(CONFIG['api']['report_url'], params=params, timeout=60, verify=False)
         resp.raise_for_status()
+        api_cost = round(time.time() - api_start, 3)
         data = resp.json()
+        items = data.get("items", [])
 
-        for item in data.get("items", []):
+        print(f"[{get_log_time()}] 📥 采集 {camp_id} | {by_position}-{by_region}-{by_audience}-{platform} | {len(items)} 条 | API耗时 {api_cost}s")
+
+        for item in items:
             attr = item.get("attributes", {})
             metric = item.get("metrics", {})
             row_raw_data = json.dumps(item, ensure_ascii=False)
@@ -195,6 +213,8 @@ def collect_report_data(token, campaign, check_date, by_region, by_audience, pla
 # ===================== 主流程 =====================
 def main():
     global write_finished
+    print(f"[{get_log_time()}] 🚀 开始执行秒针API采集 | 分区 dt={CONFIG['odps']['dt']} | 写入并行度 10 | 批次 20000")
+
     dt = CONFIG["odps"]["dt"]
     check_date = format_date(dt)
     token = get_miaozhen_token()
@@ -208,7 +228,9 @@ def main():
                     for pos in CONFIG["report_params"]["by_position_list"]:
                         tasks.append((token, camp, check_date, r, a, p, pos))
 
-    # 启动 3 线程并行写入分区
+    print(f"[{get_log_time()}] 🧩 总任务数：{len(tasks)}")
+
+    # 启动 10 线程并行写入
     write_thread = threading.Thread(target=write_worker_pool, args=(dt,), daemon=True)
     write_thread.start()
 
@@ -223,6 +245,9 @@ def main():
 
     write_finished = True
     write_thread.join()
+
+    print(f"[{get_log_time()}] ✅ 任务全部完成")
+    print(f"[{get_log_time()}] 📊 总跳过活动：{skip_campaign_count} | 总采集：{total_collected} | 总写入：{total_written}")
 
 if __name__ == "__main__":
     main()
