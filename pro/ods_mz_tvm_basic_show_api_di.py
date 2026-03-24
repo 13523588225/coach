@@ -25,7 +25,7 @@ API_CONFIG = {
 
 # 2. ODPS配置
 ODPS_PROJECT = ODPS().project
-TARGET_TABLE = "coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di"
+TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
 
 # 3. 单分区日期
 DT = '20260301'
@@ -33,10 +33,10 @@ DT = '20260301'
 # 4. 接口维度参数（调整为更安全的组合，避免无效参数）
 REPORT_PARAMS = {
     "metrics": "all",
-    "by_region": ["level0"],  # 先简化为level0，避免多级区域参数错误
-    "by_audience": ["overall"],  # 先简化为overall，避免受众类型错误
-    "platform": ["pc"],  # 先简化为pc，避免平台参数错误
-    "by_position": ["campaign"]  # 先简化为campaign，避免维度参数错误
+    "by_region": ["level0", "level1", "level2"],
+    "by_audience": ["overall", "stable", "target"],
+    "platform": ["pc", "pm", "mb"],
+    "by_position": ["campaign", "publisher", "spot"]
 }
 
 # 5. 并行/批次配置
@@ -150,6 +150,7 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
     camp_id = campaign["campaign_id"]
     camp_start = campaign["camp_start_date"]
     camp_end = campaign["camp_end_date"]
+
     report_date_10bit = date_convert(DT, "10位")
     if not report_date_10bit:
         return campaign_data
@@ -173,12 +174,14 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
 
                         # ========== 全量参数打印（不含token）+ 接口耗时 ==========
                         req_start = time.time()
+
                         resp = SESSION.get(
                             API_CONFIG["report_basic_url"],
                             params=request_params,
                             timeout=API_CONFIG["timeout"],
                             verify=False
                         )
+
                         req_cost = round(time.time() - req_start, 4)
 
                         # 打印请求参数（隐藏token）
@@ -195,8 +198,10 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                             print(f"⚠️  接口返回错误 | campaign={camp_id} | 错误信息：{raw_data.get('error_message')}")
                             time.sleep(API_CONFIG["request_interval"])
                             continue
+
                         result = raw_data.get("result", {})
                         items = result.get("items", [])
+
                         if not result or items is None or len(items) == 0:
                             print(f"⚠️  接口无有效数据 | campaign={camp_id} | URL：{resp.url}")
                             time.sleep(API_CONFIG["request_interval"])
@@ -282,7 +287,6 @@ def write_to_odps_partition(table_name: str, data: List[List]):
         return
 
     o = ODPS(project=ODPS_PROJECT)
-    # 修复：检查表是否存在的正确方法 - exist_table
     if not o.exist_table(table_name):
         raise Exception(f"ODPS表不存在：{table_name}")
 
