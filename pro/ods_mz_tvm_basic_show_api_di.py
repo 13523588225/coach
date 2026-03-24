@@ -19,7 +19,7 @@ API_CONFIG = {
     "report_basic_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/reports/basic/show",
     "auth": {"username": "Coach_api", "password": "Coachapi2026"},
     "timeout": 30,
-    "request_interval": 0.003  # 性能优化：大幅降低请求间隔
+    "request_interval": 0.003
 }
 
 # 2. ODPS配置
@@ -29,7 +29,7 @@ TARGET_TABLE = "coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di"
 # 3. 单分区日期
 DT = '20260301'
 
-# 4. 接口维度参数（你指定的）
+# 4. 接口维度参数
 REPORT_PARAMS = {
     "metrics": "all",
     "by_region": ["level0", "level1", "level2"],
@@ -38,24 +38,24 @@ REPORT_PARAMS = {
     "by_position": ["campaign", "publisher", "spot", "keyword"]
 }
 
-# 5. 并行/批次配置（性能优化）
+# 5. 并行/批次配置
 PARALLEL_CONFIG = {
-    "max_workers": 12,     # 小幅提升并行度
-    "batch_size": 50000    # 大幅减少写入批次
+    "max_workers": 12,
+    "batch_size": 50000
 }
 
-# 6. 小时字段（全局预生成，避免循环重复计算）
+# 6. 小时字段
 HOUR_FIELDS = [f"h{i:02d}" for i in range(24)]
 
 # ===================== 全局性能优化 =====================
-# 连接池：复用HTTP连接，性能提升30%+
 SESSION = requests.Session()
-# 启动关闭GC，避免高频回收卡顿
 gc.disable()
+
 
 # ===================== 工具函数 =====================
 def get_etl_time() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
 
 def date_convert(date_str: str, to_format: str) -> str:
     try:
@@ -66,6 +66,7 @@ def date_convert(date_str: str, to_format: str) -> str:
     except ValueError:
         return ""
     return ""
+
 
 def is_date_in_campaign_valid(check_date: str, camp_start: str, camp_end: str) -> bool:
     if not all([check_date, camp_start, camp_end]):
@@ -78,10 +79,12 @@ def is_date_in_campaign_valid(check_date: str, camp_start: str, camp_end: str) -
     except ValueError:
         return False
 
+
 def to_string(value) -> str:
     if value is None or value == "" or value == "null":
         return ""
     return str(value).strip()
+
 
 def to_bigint(value) -> int:
     if value is None or value == "" or value == "null":
@@ -90,6 +93,7 @@ def to_bigint(value) -> int:
         return int(float(value))
     except (ValueError, TypeError):
         return 0
+
 
 # ===================== 接口调用 =====================
 def get_miaozhen_token() -> str:
@@ -112,6 +116,7 @@ def get_miaozhen_token() -> str:
     except Exception as e:
         raise Exception(f"获取Token失败：{str(e)}")
 
+
 def get_campaign_list(token: str) -> List[Dict]:
     try:
         resp = SESSION.get(
@@ -133,6 +138,7 @@ def get_campaign_list(token: str) -> List[Dict]:
         return valid_campaigns
     except Exception as e:
         raise Exception(f"采集活动列表失败：{str(e)}")
+
 
 def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
     campaign_data = []
@@ -162,12 +168,20 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                             "by_position": by_position
                         }
 
+                        # ========== 打印 report_basic_url 请求时间 ==========
+                        req_start = time.time()
+
                         resp = SESSION.get(
                             f"{API_CONFIG['report_basic_url']}?access_token={token}",
                             params=request_params,
                             timeout=API_CONFIG["timeout"],
                             verify=False
                         )
+
+                        req_cost = round(time.time() - req_start, 4)
+                        print(
+                            f"📡 请求接口耗时 | campaign={camp_id}, region={by_region}, pos={by_position} | {req_cost} s")
+
                         resp.raise_for_status()
                         raw_data = resp.json()
 
@@ -189,7 +203,8 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                             metrics = item.get("metrics", {}) if item.get("metrics") is not None else {}
 
                             pre_parse_raw_text = to_string(
-                                json.dumps({"attributes": attributes, "metrics": metrics}, ensure_ascii=False, indent=None)
+                                json.dumps({"attributes": attributes, "metrics": metrics}, ensure_ascii=False,
+                                           indent=None)
                             )
 
                             write_row = [
@@ -239,14 +254,15 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
 
     return campaign_data
 
-# ===================== ODPS 写入（高性能） =====================
+
+# ===================== ODPS 写入（修复版 + 入库时间打印） =====================
 def write_to_odps_partition(table_name: str, data: List[List]):
     if not data:
         print(f"⚠️ 分区{DT}无数据可写入，跳过")
         return
 
     o = ODPS(project=ODPS_PROJECT)
-    if not o.exist_table(table_name):
+    if not o.exist(table_name):
         raise Exception(f"ODPS表不存在：{table_name}")
 
     table = o.get_table(table_name)
@@ -270,22 +286,22 @@ def write_to_odps_partition(table_name: str, data: List[List]):
             end_idx = min((i + 1) * batch_size, total_count)
             batch_data = data[start_idx:end_idx]
 
-            # 大缓冲写入，性能提升显著
             with table.open_writer(
-                partition=partition_spec,
-                create_partition=True,
-                buffer_size=100000
+                    partition=partition_spec,
+                    create_partition=True
             ) as writer:
                 writer.write(batch_data)
 
-            batch_cost_time = round(time.time() - batch_start_time, 2)
-            total_batch_time += batch_cost_time
-            print(f"🔄 批次{i + 1}/{batch_num} 写入{len(batch_data)}条，耗时{batch_cost_time}s")
+            # ========== 打印每个批次入库时间 ==========
+            batch_cost = round(time.time() - batch_start_time, 2)
+            total_batch_time += batch_cost
+            print(f"💾 批次{i + 1}/{batch_num} 入库完成 | 条数={len(batch_data)} | 耗时={batch_cost} s")
 
-        print(f"✅ 分区{DT}写入完成，总耗时{round(total_batch_time,2)}秒")
+        print(f"✅ 分区{DT}全部写入完成，总入库耗时{round(total_batch_time, 2)}秒")
 
     except errors.ODPSError as e:
         raise Exception(f"ODPS写入失败：{str(e)}")
+
 
 # ===================== 主流程 =====================
 def main():
@@ -294,16 +310,13 @@ def main():
         print(f"===== 任务开始：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
         print(f"目标分区：{DT} | 表：{TARGET_TABLE}")
 
-        # 1. 获取Token
         token = get_miaozhen_token()
         print(f"✅ Token获取成功")
 
-        # 2. 获取活动列表
         campaign_list = get_campaign_list(token)
         if not campaign_list:
             raise Exception("❌ 活动列表为空")
 
-        # 3. 多线程解析
         print(f"\n========== 处理分区：{DT} ==========")
         daily_write_data = []
 
@@ -322,24 +335,22 @@ def main():
                     print(f"❌ 活动解析失败：{str(e)}")
                     continue
 
-        # 4. 写入ODPS
         if daily_write_data:
             write_to_odps_partition(TARGET_TABLE, daily_write_data)
         else:
             print(f"⚠️ 无有效数据")
 
-        # 最终GC一次
         gc.enable()
         gc.collect()
 
-        # 任务总结
         task_cost_time = round(time.time() - task_start_time, 2)
-        print(f"\n===== 任务完成 =====")
+        print(f"\n===== 任务全部完成 =====")
         print(f"📈 总耗时：{task_cost_time} 秒")
 
     except Exception as e:
         print(f"❌ 任务失败：{str(e)}")
         raise
+
 
 if __name__ == "__main__":
     main()
