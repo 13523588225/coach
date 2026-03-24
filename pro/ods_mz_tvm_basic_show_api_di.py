@@ -24,7 +24,7 @@ API_CONFIG = {
 
 # 2. ODPS配置
 ODPS_PROJECT = ODPS().project
-TARGET_TABLE = "coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di"
+TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
 
 # 3. 单分区日期
 DT = '20260301'
@@ -168,19 +168,21 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                             "by_position": by_position
                         }
 
-                        # ========== 打印 report_basic_url 请求时间 ==========
+                        # ========== 全量参数打印（不含token）+ 接口耗时 ==========
                         req_start = time.time()
 
                         resp = SESSION.get(
-                            f"{API_CONFIG['report_basic_url']}?access_token={token}",
+                            f"{API_CONFIG['report_basic_url']}",
                             params=request_params,
                             timeout=API_CONFIG["timeout"],
                             verify=False
                         )
 
                         req_cost = round(time.time() - req_start, 4)
+
+                        # 打印所有请求参数 + 耗时（无token）
                         print(
-                            f"📡 请求接口耗时 | campaign={camp_id}, region={by_region}, pos={by_position} | {req_cost} s")
+                            f"📡 接口请求 | campaign={camp_id} | date={report_date_10bit} | metrics={REPORT_PARAMS['metrics']} | region={by_region} | audience={by_audience} | platform={platform} | position={by_position} | 耗时={req_cost}s")
 
                         resp.raise_for_status()
                         raw_data = resp.json()
@@ -255,7 +257,7 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
     return campaign_data
 
 
-# ===================== ODPS 写入（修复版 + 入库时间打印） =====================
+# ===================== ODPS 写入（带批次时间打印） =====================
 def write_to_odps_partition(table_name: str, data: List[List]):
     if not data:
         print(f"⚠️ 分区{DT}无数据可写入，跳过")
@@ -292,10 +294,9 @@ def write_to_odps_partition(table_name: str, data: List[List]):
             ) as writer:
                 writer.write(batch_data)
 
-            # ========== 打印每个批次入库时间 ==========
             batch_cost = round(time.time() - batch_start_time, 2)
             total_batch_time += batch_cost
-            print(f"💾 批次{i + 1}/{batch_num} 入库完成 | 条数={len(batch_data)} | 耗时={batch_cost} s")
+            print(f"💾 批次{i + 1}/{batch_num} 入库完成 | 条数={len(batch_data)} | 耗时={batch_cost}s")
 
         print(f"✅ 分区{DT}全部写入完成，总入库耗时{round(total_batch_time, 2)}秒")
 
