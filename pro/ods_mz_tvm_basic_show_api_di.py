@@ -24,7 +24,7 @@ API_CONFIG = {
 
 # 2. ODPS配置
 ODPS_PROJECT = ODPS().project
-TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
+TARGET_TABLE = "coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di"
 
 # 3. 单分区日期
 DT = '20260301'
@@ -187,11 +187,16 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                         resp.raise_for_status()
                         raw_data = resp.json()
 
-                        if raw_data.get("error_code") != 0:
+                        # ===================== 【新增】无有效数据 → 打印完整URL =====================
+                        if raw_data.get("error_code") != 0 or not raw_data.get("result", {}).get("items"):
+                            print(f"⚠️  接口无有效数据返回 | 完整URL：{resp.url}")
                             time.sleep(API_CONFIG["request_interval"])
                             continue
+                        # ==========================================================================
+
                         result = raw_data.get("result", {})
                         if not all([result.get("date"), result.get("campaignId"), result.get("items")]):
+                            print(f"⚠️  接口返回数据不完整 | 完整URL：{resp.url}")
                             time.sleep(API_CONFIG["request_interval"])
                             continue
 
