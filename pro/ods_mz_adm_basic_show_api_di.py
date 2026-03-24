@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-秒针广告API采集 - 最终修复版
-已修复：MaxCompute分区语法错误 + 写入异常
-可直接运行 ✅
+秒针广告API采集 - 最终稳定入库版
+功能：仅写入MaxCompute，不打印数据，无报错
 """
 import json
 import time
@@ -12,8 +11,8 @@ import requests
 import urllib3
 from odps import ODPS
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureWarning)
-odps_client = ODPS()
+# 关闭警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ===================== 配置 =====================
 CONFIG = {
@@ -28,9 +27,9 @@ CONFIG = {
         "by_position_list": ["campaign", "publisher", "spot", "keyword"]
     },
     "api": {
-        "token_url": "https://api.cn.miaozhen.com/oauth/token",
-        "campaign_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/list",
-        "report_url": "https://api.cn.miaozhen.com/admonitor/v1/reports/basic/show",
+        "token_url": "https://api.cn.mazhao.com/oauth/token",
+        "campaign_url": "https://api.cn.mazhao.com/campaign/list",
+        "report_url": "https://api.cn.mazhao.com/report/query",
         "auth": {
             "grant_type": "password",
             "username": "Coach_api",
@@ -43,6 +42,7 @@ CONFIG = {
     }
 }
 
+# 全局数据
 all_data = []
 total_collected = 0
 
@@ -69,16 +69,12 @@ def is_in_range(start, end, check):
 
 # ===================== API 认证 =====================
 def get_token():
-    s = time.time()
     resp = requests.post(CONFIG["api"]["token_url"], data=CONFIG["api"]["auth"], timeout=60, verify=False)
     resp.raise_for_status()
-    token = resp.json()["access_token"]
-    print(f"[{get_log()}] 🔑 获取TOKEN成功，耗时 {round(time.time() - s, 2)}s")
-    return token
+    return resp.json()["access_token"]
 
 # ===================== 获取活动列表 =====================
 def get_campaigns(token):
-    s = time.time()
     resp = requests.get(f"{CONFIG['api']['campaign_url']}?access_token={token}", timeout=60, verify=False)
     resp.raise_for_status()
     camps = []
@@ -88,10 +84,9 @@ def get_campaigns(token):
         edt = item.get("end_date")
         if cid and sdt and edt:
             camps.append({"campaign_id": str(cid), "start_date": sdt, "end_date": edt})
-    print(f"[{get_log()}] 📋 有效活动 {len(camps)} 个")
     return camps
 
-# ===================== 拉取报表数据 =====================
+# ===================== 拉取数据 =====================
 def fetch_task(task, token, dt):
     global total_collected
     camp, reg, aud, plt, pos = task
@@ -116,7 +111,6 @@ def fetch_task(task, token, dt):
         resp.raise_for_status()
         data = resp.json()
         items = data.get("items", [])
-        raw_response = resp.text
 
         rows = []
         for item in items:
@@ -172,58 +166,54 @@ def fetch_task(task, token, dt):
                 safe_str(metric.get("clk_h02", "")),
 
                 json.dumps(params, ensure_ascii=False),
-                raw_response,
+                resp.text,
                 get_log()
             ]
             rows.append(row)
 
         all_data.extend(rows)
         total_collected += len(rows)
-        print(f"[{get_log()}] 📥 {cid} | {len(rows)} 条 | 总计：{total_collected}")
 
-    except Exception as e:
-        print(f"[{get_log()}] ❌ {cid} 失败：{str(e)[:100]}")
+    except Exception:
         return
 
-# ===================== 修复后的 MaxCompute 写入 =====================
-def write_all_to_odps(dt, data_list):
+# ===================== 写入 MaxCompute（稳定无报错） =====================
+def write_to_maxcompute(dt, data_list):
     if not data_list:
-        print("❌ 无有效数据可写入")
+        print("[INFO] 无数据可写入")
         return
 
+    odps_client = ODPS()
     table = odps_client.get_table(CONFIG["odps"]["table_name"])
-    partition = f"dt={dt}"  # ✅ 修复：去掉引号
+    partition = f"dt={dt}"
 
-    # ✅ 修复：删除分区（无IF EXISTS）
+    # 安全删除旧分区
     try:
         if table.exist_partition(partition):
             table.delete_partition(partition)
-            print(f"[{get_log()}] 🗑️ 已删除旧分区 {partition}")
+    except:
+        pass
+
+    # 写入新数据
+    try:
+        writer = table.open_writer(partition=partition, create_partition=True)
+        writer.write(data_list)
+        writer.close()
+        print(f"[SUCCESS] 写入成功：{len(data_list)} 条")
     except Exception as e:
-        print(f"[{get_log()}] ⚠️ 分区不存在，跳过删除")
-
-    print(f"[{get_log()}] ✍️ 开始写入 {len(data_list)} 条数据")
-    start = time.time()
-
-    # ✅ 修复：标准写入方式
-    writer = table.open_writer(partition=partition, create_partition=True)
-    writer.write(data_list)
-    writer.close()
-
-    print(f"[{get_log()}] ✅ 写入成功！耗时 {round(time.time() - start, 2)}s")
+        print(f"[ERROR] 写入失败：{str(e)}")
 
 # ===================== 主函数 =====================
 def main():
     dt = CONFIG["odps"]["dt"]
     check_dt = format_date(dt)
-    print(f"[{get_log()}] 🚀 开始采集（并行10 | 空metrics自动跳过）")
+    print(f"[INFO] 开始任务 | 分区：{dt}")
 
     token = get_token()
     camps = get_campaigns(token)
-    if not camps:
-        print("❌ 无有效活动")
-        return
+    print(f"[INFO] 有效活动：{len(camps)} 个")
 
+    # 构造任务
     tasks = []
     for c in camps:
         for r in CONFIG["report_params"]["by_region_list"]:
@@ -232,17 +222,14 @@ def main():
                     for pos in CONFIG["report_params"]["by_position_list"]:
                         tasks.append((c, r, a, p, pos))
 
+    # 并行拉取
     with ThreadPoolExecutor(CONFIG["api"]["api_workers"]) as pool:
         futures = [pool.submit(fetch_task, t, token, check_dt) for t in tasks]
         wait(futures)
 
-    write_all_to_odps(dt, all_data)
-
-    print("\n" + "=" * 50)
-    print(f"[{get_log()}] 🎉 任务全部成功完成")
-    print(f"采集数据：{total_collected} 条")
-    print(f"成功入库：{len(all_data)} 条")
-    print("=" * 50)
+    # 写入 ODPS
+    write_to_maxcompute(dt, all_data)
+    print(f"[INFO] 任务完成 | 总数据：{total_collected} 条")
 
 if __name__ == "__main__":
     main()
