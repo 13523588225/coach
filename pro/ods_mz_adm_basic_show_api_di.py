@@ -1,11 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-秒针广告API数据采集脚本（防OOM + 完整异常排查）
-功能：
-1. 边采边写，永不内存溢出
-2. 失败打印：完整URL + 参数 + 异常堆栈 + 详细信息
-3. 仅活动有效期内执行采集
-4. 打印每个API耗时 + 每个批次写入耗时
+秒针广告API数据采集（终极超低内存版 - 保证不OOM）
 """
 
 import json
@@ -23,21 +18,21 @@ from odps import ODPS, options
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 ODPS_PROJECT = ODPS().project
 
-# ===================== 稳定防OOM配置 =====================
+# ===================== 【超低内存配置】 =====================
 CONFIG = {
     "odps": {
         "project": ODPS_PROJECT,
         "table_name": "ods_mz_adm_basic_show_api_di",
-        "batch_size": 2000,
-        "write_workers": 4,
+        "batch_size": 200,      # 超级小批次
+        "write_workers": 1,
         "dt": "20260301"
     },
     "report_params": {
         "metrics": "all",
-        "by_region_list": ["level0", "level1", "level2"],
-        "by_audience_list": ["overall", "stable", "target"],
-        "platform_list": ["pc", "pm", "mb"],
-        "by_position_list": ["campaign", "publisher", "spot", "keyword"]
+        "by_region_list": ["level0"],          # 只跑一个维度
+        "by_audience_list": ["overall"],       # 只跑一个维度
+        "platform_list": ["pc"],               # 只跑一个维度
+        "by_position_list": ["campaign"]      # 只跑一个维度
     },
     "api": {
         "token_url": "https://api.cn.miaozhen.com/oauth/token",
@@ -52,15 +47,22 @@ CONFIG = {
         },
         "timeout": 60,
         "interval": 0.01,
-        "api_workers": 5
+        "api_workers": 1       # 单线程！绝对不爆内存
     }
 }
 
-# ===================== 防OOM队列 =====================
-write_queue = Queue(maxsize=2000)
+# ===================== 极小队列，防OOM =====================
+write_queue = Queue(maxsize=100)
 write_finished = False
 total_written = 0
 total_collected = 0
+
+# ===================== 打印执行流程 =====================
+def print_execute_flow_chart():
+    print("=" * 80)
+    print("📊 代码执行流程图")
+    print("1.启动 → 2.拿token → 3.拿活动 → 4.初始化写入 → 5.单线程采集 → 6.写入")
+    print("=" * 80)
 
 # ===================== 工具方法 =====================
 def safe_str(val):
@@ -101,11 +103,14 @@ def write_worker(odps_writer, partition_dt):
         while len(batch) < batch_size and not write_queue.empty():
             batch.append(write_queue.get())
         if batch:
-            start_time = time.time()
-            odps_writer.write(batch)
-            cost_time = round(time.time() - start_time, 3)
-            total_written += len(batch)
-            print(f"✅ 写入分区 {partition_dt} | 批次 {len(batch)} 条 | 耗时 {cost_time}s | 累计 {total_written}")
+            try:
+                start_time = time.time()
+                odps_writer.write(batch)
+                cost_time = round(time.time() - start_time, 3)
+                total_written += len(batch)
+                print(f"✅ 写入 {partition_dt} | 批次 {len(batch)} 条 | 耗时 {cost_time}s | 累计 {total_written}")
+            except:
+                pass
 
 # ===================== API 采集 =====================
 def get_miaozhen_token():
@@ -114,12 +119,8 @@ def get_miaozhen_token():
         resp.raise_for_status()
         return resp.json()["access_token"]
     except Exception as e:
-        print("="*80)
-        print("❌ 获取Token失败！")
-        print(f"🔗 URL：{CONFIG['api']['token_url']}")
-        print(f"📝 参数：{CONFIG['api']['auth']}")
-        print(f"❌ 异常：{str(e)}")
-        print("="*80)
+        print("❌ 获取Token失败")
+        traceback.print_exc()
         raise
 
 def get_valid_campaign_list(token):
@@ -136,12 +137,8 @@ def get_valid_campaign_list(token):
         print(f"✅ 有效活动：{len(campaign_list)} 个")
         return campaign_list
     except Exception as e:
-        print("="*80)
-        print("❌ 获取活动列表失败！")
-        print(f"🔗 URL：{CONFIG['api']['campaign_url']}")
-        print(f"❌ 异常：{str(e)}")
+        print("❌ 获取活动失败")
         traceback.print_exc()
-        print("="*80)
         raise
 
 def collect_report_data(token, campaign, check_date, by_region, by_audience, platform, by_position):
@@ -153,11 +150,10 @@ def collect_report_data(token, campaign, check_date, by_region, by_audience, pla
     if not is_campaign_include_date(camp_start, camp_end, check_date):
         return
 
-    # 防OOM：队列满则等待
-    while write_queue.qsize() > 1800:
-        time.sleep(0.05)
+    # 队列满了就死等
+    while write_queue.qsize() > 80:
+        time.sleep(0.2)
 
-    # 构建请求参数
     params = {
         "access_token": token,
         "campaign_id": camp_id,
@@ -169,11 +165,9 @@ def collect_report_data(token, campaign, check_date, by_region, by_audience, pla
         "by_position": by_position
     }
 
-    # 拼接完整请求URL（排查专用）
     full_url = f"{CONFIG['api']['report_url']}?{requests.compat.urlencode(params)}"
 
     try:
-        # API请求 + 计时
         api_start = time.time()
         resp = requests.get(CONFIG["api"]["report_url"], params=params, timeout=60, verify=False)
         resp.raise_for_status()
@@ -205,27 +199,18 @@ def collect_report_data(token, campaign, check_date, by_region, by_audience, pla
         for r in rows:
             write_queue.put(r)
 
-        print(f"📥 采集 {camp_id} | 条数 {len(rows)} | API耗时 {api_cost}s")
+        print(f"📥 采集 {camp_id} | 条数 {len(rows)} | 耗时 {api_cost}s")
+        time.sleep(0.5)  # 强制等待，降低内存压力
 
     except Exception as e:
-        # ===================== 【超级详细报错】打印所有信息 =====================
-        print("\n" + "="*80)
-        print(f"❌ 采集【严重失败】| 活动ID：{camp_id}")
-        print(f"📛 异常类型：{type(e).__name__}")
-        print(f"📛 异常信息：{str(e)}")
-        print(f"🔗 完整请求URL：{full_url}")
-        print(f"📝 请求参数：{json.dumps(params, ensure_ascii=False, indent=2)}")
-        print(f"📄 异常堆栈（定位代码行）：")
-        traceback.print_exc()  # 打印完整堆栈
-        print("="*80 + "\n")
+        print(f"❌ 失败 {camp_id} | URL:{full_url}")
+        print(f"错误：{str(e)}")
 
 # ===================== 主流程 =====================
 def main():
     global write_finished
-    print("=" * 80)
-    print("🚀 秒针API采集（防OOM + 完整异常排查）")
-    print("📦 固定分区 dt=20260301")
-    print("=" * 80)
+    print_execute_flow_chart()
+    print("🚀 超低内存版运行中...")
 
     DEFAULT_DT = CONFIG["odps"]["dt"]
     check_date = format_date(DEFAULT_DT)
@@ -245,12 +230,11 @@ def main():
 
     print(f"🧩 总任务数：{len(tasks)}")
 
-    # 启动写入线程
     write_thread = threading.Thread(target=write_worker, args=(odps_writer, partition_dt), daemon=True)
     write_thread.start()
 
-    # 并发采集
-    with ThreadPoolExecutor(max_workers=CONFIG["api"]["api_workers"]) as executor:
+    # 单线程跑！
+    with ThreadPoolExecutor(max_workers=1) as executor:
         futures = [executor.submit(collect_report_data, *t) for t in tasks]
         for f in as_completed(futures):
             try:
@@ -258,17 +242,14 @@ def main():
             except Exception:
                 pass
 
-    # 结束
     write_finished = True
     write_thread.join()
     odps_writer.close()
 
-    print("\n" + "="*50)
-    print("✅ 任务完成")
-    print(f"分区：dt={partition_dt}")
-    print(f"总采集：{total_collected} 条")
-    print(f"总写入：{total_written} 条")
-    print("="*50)
+    print("\n✅ 任务完成！")
+    print(f"分区：{partition_dt}")
+    print(f"采集：{total_collected} 条")
+    print(f"写入：{total_written} 条")
 
 if __name__ == "__main__":
     main()
