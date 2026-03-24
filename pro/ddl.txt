@@ -30,52 +30,47 @@ PARTITIONED BY
 drop table if exists coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di
 (
-    -- 1. 活动核心信息字段（从/cms/v1/campaigns/list接口获取）
-    campaign_id          STRING COMMENT '活动ID'
-    ,campaign_start_date STRING COMMENT '活动开始日期（yyyy-MM-dd）'
-    ,campaign_end_date   STRING COMMENT '活动结束日期（yyyy-MM-dd）'
-    -- 2. 报表采集日期字段（从日报接口date字段获取）
-    ,report_day_date     STRING COMMENT '报表采集单日日期（yyyy-MM-dd）'
-    -- 3. 报表维度参数字段（固定值/请求参数）
-    ,by_position         STRING COMMENT '位置维度值（固定为spot）'
-    ,by_region           STRING COMMENT '地域维度值（level0/level1/level2）'
-    ,metrics             STRING COMMENT '指标维度值（固定为all）'
-    -- 4. 秒针日报接口顶层指标字段
-    ,s_version             STRING COMMENT '版本号（接口顶层字段）'
-    ,platform            STRING COMMENT '平台类型（接口顶层字段，如pc）'
-    ,total_spot_num      STRING COMMENT '总点位数量（接口顶层字段）'
-    -- 5. 秒针日报接口items.attributes属性字段
-    ,audience            STRING COMMENT '受众群体（items[*].attributes.audience）'
-    ,target_id           STRING COMMENT '目标ID（接口无该字段，默认NULL）'
-    ,publisher_id        STRING COMMENT '发布商ID（items[*].attributes.publisher_id）'
-    ,spot_id             STRING COMMENT '点位ID（items[*].attributes.spot_id）'
-    ,keyword_id          STRING COMMENT '关键词ID（接口无该字段，默认NULL）'
-    ,region_id           STRING COMMENT '地域ID（items[*].attributes.region_id）'
-    ,universe            STRING COMMENT '总体量（items[*].attributes.universe）'
-    -- 6. 秒针日报接口items.metrics核心指标字段
-    ,imp_acc             STRING COMMENT '累计曝光量（items[*].metrics.imp_acc）'
-    ,clk_acc             STRING COMMENT '累计点击量（items[*].metrics.clk_acc）'
-    ,uim_acc             STRING COMMENT '累计独立曝光用户数（items[*].metrics.uim_acc）'
-    ,ucl_acc             STRING COMMENT '累计独立点击用户数（items[*].metrics.ucl_acc）'
-    ,imp_day             STRING COMMENT '当日曝光量（items[*].metrics.imp_day）'
-    ,clk_day             STRING COMMENT '当日点击量（items[*].metrics.clk_day）'
-    ,uim_day             STRING COMMENT '当日独立曝光用户数（items[*].metrics.uim_day）'
-    ,ucl_day             STRING COMMENT '当日独立点击用户数（items[*].metrics.ucl_day）'
-    ,imp_avg_day         STRING COMMENT '日均曝光量（items[*].metrics.imp_avg_day）'
-    ,clk_avg_day         STRING COMMENT '日均点击量（items[*].metrics.clk_avg_day）'
-    ,uim_avg_day         STRING COMMENT '日均独立曝光用户数（items[*].metrics.uim_avg_day）'
-    ,ucl_avg_day         STRING COMMENT '日均独立点击用户数（items[*].metrics.ucl_avg_day）'
-    -- 7. 秒针日报接口items.metrics时段指标字段
-    ,imp_acc_h00         STRING COMMENT '累计曝光量（0点，映射items[*].metrics.imp_h00）'
-    ,imp_acc_h23         STRING COMMENT '累计曝光量（23点，映射items[*].metrics.imp_h23）'
-    ,clk_acc_h00         STRING COMMENT '累计点击量（0点，映射items[*].metrics.clk_h00）'
-    ,clk_acc_h23         STRING COMMENT '累计点击量（23点，映射items[*].metrics.clk_h23）'
-    -- 8. 原始数据与采集元信息
-    ,pre_parse_raw_text  STRING COMMENT '秒针接口返回的原始文本数据'
-    ,etl_datetime        STRING COMMENT '数据采集时间（yyyy-MM-dd HH:mm:ss）'
+    campaign_id           STRING COMMENT '活动ID',
+    campaign_start_date   STRING COMMENT '活动开始日期',
+    campaign_end_date     STRING COMMENT '活动结束日期',
+    report_day_date       STRING COMMENT '报表日期',
+    by_position           STRING COMMENT '统计维度-位置',
+    by_region             STRING COMMENT '统计维度-地域',
+    metrics               STRING COMMENT '指标类型',
+    by_audience           STRING COMMENT '统计维度-受众',
+    platform              STRING COMMENT '统计维度-平台',
+    s_version             STRING COMMENT '报表版本',
+    platform_resp         STRING COMMENT '平台返回值',
+    total_spot_num        STRING COMMENT '总点位数量',
+    audience              STRING COMMENT '受众类型',
+    target_id             STRING COMMENT '人群包ID',
+    publisher_id          STRING COMMENT '媒体ID',
+    spot_id               STRING COMMENT '点位ID',
+    keyword_id            STRING COMMENT '关键词ID',
+    region_id             STRING COMMENT '地域ID',
+    universe              STRING COMMENT '触达量级',
+    imp_acc               STRING COMMENT '累计曝光量',
+    clk_acc               STRING COMMENT '累计点击量',
+    uim_acc               STRING COMMENT '累计独立曝光',
+    ucl_acc               STRING COMMENT '累计独立点击',
+    imp_day               STRING COMMENT '日曝光',
+    clk_day               STRING COMMENT '日点击',
+    uim_day               STRING COMMENT '日独立曝光',
+    ucl_day               STRING COMMENT '日独立点击',
+    imp_avg_day           STRING COMMENT '日均曝光',
+    clk_avg_day           STRING COMMENT '日均点击',
+    uim_avg_day           STRING COMMENT '日均独立曝光',
+    ucl_avg_day           STRING COMMENT '日均独立点击',
+    imp_acc_h00           STRING COMMENT '0时累计曝光',
+    imp_acc_h23           STRING COMMENT '23时累计曝光',
+    clk_acc_h00           STRING COMMENT '0时累计点击',
+    clk_acc_h23           STRING COMMENT '23时累计点击',
+    request_params        STRING COMMENT '完整API请求参数JSON',  -- 新增
+    pre_parse_raw_text    STRING COMMENT '原始返回报文',
+    etl_datetime          STRING COMMENT '采集时间'
 )
 COMMENT '秒针MonitorTV基础展示报表API采集表'
-PARTITIONED BY 
+PARTITIONED BY
 (
     dt                   STRING COMMENT '分区日期（yyyyMMdd，对应报表单日日期）'
 )
