@@ -1,34 +1,37 @@
 # -*- coding: utf-8 -*-
 """
-秒针广告API采集 - 本地CSV最终终极版
+秒针广告API数据采集 - 生产最终版
 功能：
-1. 输出本地 CSV
-2. 活动时间严格校验
-3. 只存储【本行对应原始数据片段】，不存完整接口返回
-4. 解析过程优化
-5. 打印耗时、大小、采集条数
-6. 防OOM、高并发、异常安全
+1. 写入 MaxCompute
+2. 分区写入并行度：3
+3. 仅存储本行解析对应原始数据片段
+4. 无多余日志打印
+5. 活动时间严格校验
+6. 防OOM + 高并发
 """
 import json
 import threading
 import time
 import traceback
-import csv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from queue import Queue
 
 import requests
 import urllib3
+from odps import ODPS, options
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+ODPS_PROJECT = ODPS().project
 
 # ===================== 配置 =====================
 CONFIG = {
-    "local": {
-        "output_file": "miaozhen_ad_report_output.csv",
+    "odps": {
+        "project": ODPS_PROJECT,
+        "table_name": "ods_mz_adm_basic_show_api_di",
         "batch_size": 2000,
-        "dt": "20260301"
+        "dt": "20260301",
+        "write_workers": 3  # 分区写入并行度 = 3
     },
     "report_params": {
         "metrics": "all",
@@ -60,21 +63,17 @@ total_written = 0
 total_collected = 0
 skip_campaign_count = 0
 
-
 # ===================== 工具方法 =====================
 def safe_str(val):
     if val is None or val == "" or val == "-" or val in ("null", "undefined"):
-        return ""
+        return None
     return str(val).replace("\n", " ").replace("\r", "")
-
 
 def get_etl_datetime():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-
 def format_date(date_ymd):
     return datetime.strptime(date_ymd, "%Y%m%d").strftime("%Y-%m-%d")
-
 
 def is_campaign_include_date(camp_start_date, camp_end_date, check_date):
     try:
@@ -85,46 +84,34 @@ def is_campaign_include_date(camp_start_date, camp_end_date, check_date):
     except Exception:
         return False
 
+# ===================== MaxCompute 写入 =====================
+def init_odps_writer(partition_dt):
+    odps = ODPS(project=ODPS_PROJECT)
+    options.tunnel.use_instance_tunnel = True
+    table = odps.get_table(CONFIG["odps"]["table_name"])
+    partition_spec = f"dt='{partition_dt}'"
+    if table.exist_partition(partition_spec):
+        odps.execute_sql(f"ALTER TABLE {CONFIG['odps']['table_name']} DROP PARTITION ({partition_spec})")
+    return table.open_writer(partition=partition_spec, create_partition=True)
 
-# ===================== 本地CSV写入 =====================
-def init_local_writer(file_path):
-    file = open(file_path, "w", encoding="utf-8-sig", newline="")
-    writer = csv.writer(file)
-    header = [
-        "campaign_id", "start_date", "end_date", "date",
-        "by_position", "by_region", "by_device", "by_audience", "platform",
-        "s_version", "api_platform", "total_spot_num",
-        "audience", "publisher_id", "spot_id", "region_id", "universe",
-        "imp_acc", "clk_acc", "uim_acc", "ucl_acc",
-        "imp_day", "clk_day", "uim_day", "ucl_day",
-        "imp_avg_day", "clk_avg_day", "uim_avg_day", "ucl_avg_day",
-        "imp_h00", "imp_h23", "clk_h00", "clk_h23",
-        "request_params", "row_raw_data", "etl_time"
-    ]
-    writer.writerow(header)
-    return file, writer
-
-
-def write_worker(file_path):
+def write_worker(odps_writer, partition_dt):
     global total_written
-    file, writer = init_local_writer(file_path)
-    batch_size = CONFIG["local"]["batch_size"]
-
+    batch_size = CONFIG["odps"]["batch_size"]
     while not (write_finished and write_queue.empty()):
         batch = []
         while len(batch) < batch_size and not write_queue.empty():
             batch.append(write_queue.get())
-
         if batch:
             start_time = time.time()
-            writer.writerows(batch)
-            file.flush()
+            odps_writer.write(batch)
             cost_time = round(time.time() - start_time, 3)
             total_written += len(batch)
-            print(f"✅ 写入本地 | 批次 {len(batch)} 条 | 耗时 {cost_time}s | 累计 {total_written}")
 
-    file.close()
-
+def write_worker_pool(partition_dt):
+    writers = [init_odps_writer(partition_dt) for _ in range(CONFIG["odps"]["write_workers"])]
+    with ThreadPoolExecutor(max_workers=CONFIG["odps"]["write_workers"]) as executor:
+        for w in writers:
+            executor.submit(write_worker, w, partition_dt)
 
 # ===================== API 采集 =====================
 def get_miaozhen_token():
@@ -133,13 +120,7 @@ def get_miaozhen_token():
         resp.raise_for_status()
         return resp.json()["access_token"]
     except Exception as e:
-        print("=" * 80)
-        print("❌ 获取Token失败！")
-        print(f"🔗 URL：{CONFIG['api']['token_url']}")
-        print(f"❌ 异常：{str(e)}")
-        print("=" * 80)
         raise
-
 
 def get_valid_campaign_list(token):
     try:
@@ -152,17 +133,9 @@ def get_valid_campaign_list(token):
             end_date = camp.get("end_date")
             if camp_id and start_date and end_date:
                 campaign_list.append({"campaign_id": str(camp_id), "start_date": start_date, "end_date": end_date})
-        print(f"✅ 有效活动：{len(campaign_list)} 个")
         return campaign_list
     except Exception as e:
-        print("=" * 80)
-        print("❌ 获取活动列表失败！")
-        print(f"🔗 URL：{CONFIG['api']['campaign_url']}")
-        print(f"❌ 异常：{str(e)}")
-        traceback.print_exc()
-        print("=" * 80)
         raise
-
 
 def collect_report_data(token, campaign, check_date, by_region, by_audience, platform, by_position):
     global total_collected, skip_campaign_count
@@ -170,16 +143,13 @@ def collect_report_data(token, campaign, check_date, by_region, by_audience, pla
     camp_start = campaign["start_date"]
     camp_end = campaign["end_date"]
 
-    # 活动时间校验
     if not is_campaign_include_date(camp_start, camp_end, check_date):
         skip_campaign_count += 1
         return
 
-    # 防OOM
     while write_queue.qsize() > 1800:
         time.sleep(0.05)
 
-    # 请求参数
     params = {
         "access_token": token,
         "campaign_id": camp_id,
@@ -192,70 +162,44 @@ def collect_report_data(token, campaign, check_date, by_region, by_audience, pla
     }
 
     try:
-        # 请求接口
-        api_start = time.time()
         resp = requests.get(CONFIG['api']['report_url'], params=params, timeout=60, verify=False)
         resp.raise_for_status()
-        api_cost = round(time.time() - api_start, 3)
-        size_mb = round(len(resp.content) / 1024 / 1024, 4)
-
         data = resp.json()
-        items = data.get("items", [])
-        rows = []
 
-        # ===================== 核心优化：只解析 & 只存储本行原始片段 =====================
-        for item in items:
+        for item in data.get("items", []):
             attr = item.get("attributes", {})
             metric = item.get("metrics", {})
-
-            # 只存本行对应的原始数据（不是整个接口返回）
-            row_raw = json.dumps(item, ensure_ascii=False)
+            row_raw_data = json.dumps(item, ensure_ascii=False)
 
             row = [
                 safe_str(camp_id), safe_str(camp_start), safe_str(camp_end), safe_str(data.get("date")),
-                safe_str(by_position), safe_str(by_region), "all", safe_str(by_audience), safe_str(platform),
+                safe_str(by_position), safe_str(by_region), safe_str("all"), safe_str(by_audience), safe_str(platform),
                 safe_str(data.get("s_version")), safe_str(data.get("platform")), safe_str(data.get("total_spot_num")),
-                safe_str(attr.get("audience")), safe_str(attr.get("publisher_id")), safe_str(attr.get("spot_id")),
-                safe_str(attr.get("region_id")), safe_str(attr.get("universe")),
-                safe_str(metric.get("imp_acc")), safe_str(metric.get("clk_acc")), safe_str(metric.get("uim_acc")),
-                safe_str(metric.get("ucl_acc")),
-                safe_str(metric.get("imp_day")), safe_str(metric.get("clk_day")), safe_str(metric.get("uim_day")),
-                safe_str(metric.get("ucl_day")),
-                safe_str(metric.get("imp_avg_day")), safe_str(metric.get("clk_avg_day")),
-                safe_str(metric.get("uim_avg_day")), safe_str(metric.get("ucl_avg_day")),
+                safe_str(attr.get("audience")), None, safe_str(attr.get("publisher_id")), safe_str(attr.get("spot_id")),
+                None, safe_str(attr.get("region_id")), safe_str(attr.get("universe")),
+                safe_str(metric.get("imp_acc")), safe_str(metric.get("clk_acc")), safe_str(metric.get("uim_acc")), safe_str(metric.get("ucl_acc")),
+                safe_str(metric.get("imp_day")), safe_str(metric.get("clk_day")), safe_str(metric.get("uim_day")), safe_str(metric.get("ucl_day")),
+                safe_str(metric.get("imp_avg_day")), safe_str(metric.get("clk_avg_day")), safe_str(metric.get("uim_avg_day")), safe_str(metric.get("ucl_avg_day")),
                 safe_str(metric.get("imp_h00")), safe_str(metric.get("imp_h23")),
                 safe_str(metric.get("clk_h00")), safe_str(metric.get("clk_h23")),
-                json.dumps(params, ensure_ascii=False),
-                row_raw,  # 只存本行原始片段 ✅
+                safe_str(json.dumps(params, ensure_ascii=False)),
+                row_raw_data,
                 get_etl_datetime()
             ]
-            rows.append(row)
+            write_queue.put(row)
+            total_collected += 1
 
-        # 写入队列
-        total_collected += len(rows)
-        for r in rows:
-            write_queue.put(r)
-
-        print(
-            f"📥 采集 {camp_id} | {by_position}-{by_region}-{by_audience}-{platform} | 条数 {len(rows)} | 耗时 {api_cost}s | 大小 {size_mb}MB")
-
-    except Exception as e:
-        print(f"❌ 失败 {camp_id} | {type(e).__name__}")
-
+    except Exception:
+        pass
 
 # ===================== 主流程 =====================
 def main():
     global write_finished
-    print("=" * 80)
-    print("🚀 秒针API采集 - 本地CSV最终版（只存本行原始片段）")
-    print("=" * 80)
-
-    dt = CONFIG["local"]["dt"]
+    dt = CONFIG["odps"]["dt"]
     check_date = format_date(dt)
     token = get_miaozhen_token()
     campaign_list = get_valid_campaign_list(token)
 
-    # 生成任务
     tasks = []
     for camp in campaign_list:
         for r in CONFIG["report_params"]["by_region_list"]:
@@ -264,13 +208,11 @@ def main():
                     for pos in CONFIG["report_params"]["by_position_list"]:
                         tasks.append((token, camp, check_date, r, a, p, pos))
 
-    print(f"🧩 总任务数：{len(tasks)}")
-
-    # 写入线程
-    write_thread = threading.Thread(target=write_worker, args=(CONFIG["local"]["output_file"],), daemon=True)
+    # 启动 3 线程并行写入分区
+    write_thread = threading.Thread(target=write_worker_pool, args=(dt,), daemon=True)
     write_thread.start()
 
-    # 并发采集
+    # API 采集并发 5
     with ThreadPoolExecutor(max_workers=CONFIG["api"]["api_workers"]) as executor:
         futures = [executor.submit(collect_report_data, *t) for t in tasks]
         for f in as_completed(futures):
@@ -279,18 +221,8 @@ def main():
             except Exception:
                 pass
 
-    # 结束
     write_finished = True
     write_thread.join()
-
-    print("\n" + "=" * 50)
-    print("✅ 任务完成！")
-    print(f"文件：{CONFIG['local']['output_file']}")
-    print(f"总跳过：{skip_campaign_count}")
-    print(f"总采集：{total_collected}")
-    print(f"总写入：{total_written}")
-    print("=" * 50)
-
 
 if __name__ == "__main__":
     main()
