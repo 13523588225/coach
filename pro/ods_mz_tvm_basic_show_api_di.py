@@ -24,8 +24,8 @@ API_CONFIG = {
 }
 
 # 2. ODPS配置
-# ODPS_PROJECT = ODPS().project
-ODPS_PROJECT = "coach_marketing_hub_dev"
+ODPS_PROJECT = ODPS().project
+# ODPS_PROJECT = "coach_marketing_hub_dev"
 TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
 
 # 3. 单分区日期
