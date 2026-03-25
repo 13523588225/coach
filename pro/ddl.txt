@@ -77,8 +77,8 @@ PARTITIONED BY
 ;
 
 -- 创建秒针活动列表分区表
-drop table if exists coach_marketing_hub_dev.ods_mz_tvm_campaigns_list_api_df;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_campaigns_list_api_df
+drop table if exists coach_marketing_hub.ods_mz_tvm_campaigns_list_api_df;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_campaigns_list_api_df
 (
     campaign_id         STRING COMMENT '活动ID（主键）'
     ,start_time         STRING COMMENT '活动开始时间（yyyy-MM-dd）'
