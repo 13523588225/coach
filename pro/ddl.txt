@@ -525,6 +525,11 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_rep
     ,reach_ta_09         STRING COMMENT '该时间段内相交目标TA到达9次人群总数'
     ,reach_ta_10         STRING COMMENT '该时间段内相交目标TA到达10次人群总数'
     ,reach_ta_10_plus    STRING COMMENT '该时间段内相交目标TA到达超过10次人群总数'
+    ,ta_impression       STRING COMMENT '该时间段内曝光TA的IMP总量'
+    ,stable_impression   STRING COMMENT '该时间段内稳定人群曝光总量'
+    ,stable_uv           STRING COMMENT '该时间段内稳定人群UV总量'
+    ,complete_views      STRING COMMENT '该时间段内完播次数'
+    ,target_freq_imp     STRING COMMENT '该时间段内达到目标频控（1-5次）的IMP总量'
 )
 COMMENT '活动周表'
 PARTITIONED BY
