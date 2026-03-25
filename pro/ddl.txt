@@ -484,7 +484,8 @@ PARTITIONED BY
 )
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_report_oss_di
+-- drop table coach_marketing_hub.ods_mz_ad_campaign_weekly_report_oss_di;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_ad_campaign_weekly_report_oss_di
 (
     fiscal_year          STRING COMMENT '财年（如FY26）'
     ,fiscal_period       STRING COMMENT '财期（如P1）'
@@ -528,7 +529,6 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_rep
     ,ta_impression       STRING COMMENT '该时间段内曝光TA的IMP总量'
     ,stable_impression   STRING COMMENT '该时间段内稳定人群曝光总量'
     ,stable_uv           STRING COMMENT '该时间段内稳定人群UV总量'
-    ,complete_views      STRING COMMENT '该时间段内完播次数'
     ,target_freq_imp     STRING COMMENT '该时间段内达到目标频控（1-5次）的IMP总量'
 )
 COMMENT '活动周表'
