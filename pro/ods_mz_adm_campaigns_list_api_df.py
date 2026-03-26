@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 import urllib3
 from typing import List
-from odps import ODPS
+from odps import ODPS, errors  # 新增errors导入
 
 # 禁用SSL警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -16,8 +16,8 @@ CONFIG = {
         "campaign_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/list",
         "auth": {
             "grant_type": "password",
-            "username": "Coach_api",
-            "password": "Coachapi2026",
+            "username": "Coach_api",  # 仅保留占位，实际会被数仓值替换
+            "password": "Coachapi2026",  # 仅保留占位，实际会被数仓值替换
             "client_id": "COACH2026_API",
             "client_secret": "e65798fb-85d6-4c56-aa19-a2435e8fef18"
         },
@@ -39,6 +39,34 @@ def safe_str(val):
     if isinstance(val, (list, dict)):
         return json.dumps(val, ensure_ascii=False)
     return str(val)
+
+
+def get_log():
+    """获取当前日志时间戳（适配账号查询函数）"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ===================== 从MaxCompute查询API账号密码 =====================
+def get_adm_api_credentials():
+    """
+    从数仓表 ods_mz_user_api_df 查询ADM接口的账号密码
+    SQL: select username,passwords from ods_mz_user_api_df where api_source ='ADM'
+    """
+    o = ODPS(project=ODPS_PROJECT)
+    sql = """
+          select username, passwords
+          from ods_mz_user_api_df
+          where api_source = 'ADM' limit 1 \
+          """
+    try:
+        with o.execute_sql(sql).open_reader() as reader:
+            record = reader[0]
+            username = record["username"]
+            password = record["passwords"]
+            print(f"[{get_log()}] 🔐 成功从数仓获取ADM账号：{username}")
+            return username, password
+    except errors.ODPSError as e:
+        raise Exception(f"❌ 查询账号密码失败：{str(e)}")
 
 
 # ====================== 通用ODPS写入函数（完全复用你提供的版本） ======================
@@ -68,10 +96,16 @@ def write_to_odps(table_name: str, data: List[List], dt: str):
 
 # ====================== 步骤1：获取access_token ======================
 def get_access_token():
-    """POST请求获取Token（参数从CONFIG读取）"""
+    """POST请求获取Token（账号密码从数仓动态获取）"""
     print("🔍 开始获取access_token...")
     try:
-        token_params = CONFIG["api"]["auth"]
+        # 从数仓获取真实账号密码
+        username, password = get_adm_api_credentials()
+        # 构造Token请求参数（替换账号密码）
+        token_params = CONFIG["api"]["auth"].copy()
+        token_params["username"] = username
+        token_params["password"] = password
+
         resp = requests.post(
             url=CONFIG["api"]["token_url"],
             data=token_params,
@@ -84,7 +118,9 @@ def get_access_token():
         print(f"✅ Token获取成功：{access_token[:20]}...")
         return access_token
     except Exception as e:
-        raise Exception(f"Token获取失败：{str(e)} | 响应：{resp.text[:500]}")
+        # 兼容resp未定义的异常场景
+        resp_text = resp.text[:500] if 'resp' in locals() else "无响应数据"
+        raise Exception(f"Token获取失败：{str(e)} | 响应：{resp_text}")
 
 
 # ====================== 步骤2：采集活动数据（新增完整请求URL采集） ======================
@@ -146,7 +182,7 @@ def assemble_odps_data(campaigns):
         "linked_panels",  # 13. 关联面板
         "linked_siteids",  # 14. 关联站点ID
         "slot_type",  # 15. 广告位类型
-        "full_request_url",  # 16. 新增：完整接口请求URL
+        "full_request_url",  # 16. 新增：完整接口请求URL（注释已匹配）
         "pre_parse_raw_text",  # 17. 源解析文本（原16位，后移一位）
         "etl_datetime"  # 18. 数据落地时间（原17位，后移一位）
     ]
