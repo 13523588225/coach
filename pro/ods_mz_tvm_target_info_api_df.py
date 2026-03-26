@@ -216,7 +216,7 @@ def main():
         ]
 
         # 5. 写入ODPS（分区日期可替换为动态参数）
-        write_to_odps(TABLE_NAMES["target_info"], target_write_data, '20260318')
+        write_to_odps(TABLE_NAMES["target_info"], target_write_data, args['dt'])
 
     except Exception as e:
         print(f"❌ 任务失败：{str(e)}")
