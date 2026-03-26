@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 秒针TV监测广告点位详情采集脚本（并行版+ODPS写入）
 数据来源：/monitortv/v1/spot/info 接口
@@ -32,12 +31,12 @@ API_CONFIG = {
 }
 
 # 2. ODPS配置（DataWorks自动鉴权）
-ODPS_PROJECT = ODPS().project
+ODPS_PROJECT = 'coach_marketing_hub_dev'
 TABLE_NAMES = {
     "spot_info": "ods_mz_tvm_spot_info_api_df"  # 广告点位详情目标表
 }
-# 分区日期（默认当天，可手动指定如'20260320'）
-PARTITION_DT = date.today().strftime("%Y%m%d")
+# 分区日期
+PARTITION_DT = args['dt']
 
 
 # ===================== 核心工具函数 =====================

@@ -31,7 +31,7 @@ API_CONFIG = {
 }
 
 # 2. ODPS全局配置（需替换为实际项目名）
-ODPS_PROJECT = ODPS().project
+ODPS_PROJECT = 'coach_marketing_hub_dev'
 TARGET_TABLE_NAME = "ods_mz_adm_regions_list_api_df"  # 目标表名
 
 
@@ -39,11 +39,6 @@ TARGET_TABLE_NAME = "ods_mz_adm_regions_list_api_df"  # 目标表名
 def get_etl_datetime() -> str:
     """获取当前时间戳（yyyy-MM-dd HH:mm:ss）"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def get_partition_dt() -> str:
-    """获取分区日期（yyyyMMdd）"""
-    return datetime.now().strftime("%Y%m%d")
 
 
 def to_string(value) -> str:
@@ -188,11 +183,8 @@ def main():
             ] for t in regions_list_data
         ]
 
-        # 4. 获取分区日期（yyyyMMdd）
-        partition_dt = get_partition_dt()
-
-        # 5. 调用通用ODPS写入函数（核心：使用你提供的write_to_odps）
-        write_to_odps(TARGET_TABLE_NAME, regions_write_data, partition_dt)
+        # 4. 调用通用ODPS写入函数（核心：使用你提供的write_to_odps）
+        write_to_odps(TARGET_TABLE_NAME, regions_write_data, args['dt'])
 
         print(f"✅ 脚本执行完成（{get_etl_datetime()}）")
 

@@ -27,7 +27,7 @@ CONFIG = {
         "by_region_list": ["level0", "level1", "level2"],
         "by_audience_list": ["overall", "stable", "target"],
         "platform_list": ["pc", "pm", "mb"],
-        "by_position_list": ["campaign", "publisher", "spot", "keyword"]
+        "by_position_list": ["campaign", "publisher", "spot"]
     },
     "api": {
         "token_url": "https://api.cn.miaozhen.com/oauth/token",

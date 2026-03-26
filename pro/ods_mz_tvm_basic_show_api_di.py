@@ -4,6 +4,7 @@ import json
 import time
 import gc
 import urllib3
+from urllib3.exceptions import InsecureRequestWarning
 import traceback
 from datetime import datetime
 from typing import Dict, List
@@ -12,7 +13,7 @@ from odps import ODPS, errors
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ===================== 全局配置 =====================
-urllib3.disable_warnings(urllib3.exceptions.InsecureWarning)
+urllib3.disable_warnings(InsecureRequestWarning)
 
 # 1. 秒针接口配置
 API_CONFIG = {
@@ -37,7 +38,7 @@ REPORT_PARAMS = {
     "by_region": ["level0", "level1", "level2"],
     "by_audience": ["overall", "stable", "target"],
     "platform": ["pc", "pm", "mb"],
-    "by_position": ["campaign", "publisher", "spot", "keyword"]
+    "by_position": ["campaign", "publisher", "spot"]
 }
 
 # 5. 并行/批次配置
@@ -339,6 +340,7 @@ def main():
     try:
         task_start_time = time.time()
         print(f"===== 任务开始：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
+        print(f"项目名称：{ODPS_PROJECT}")    
         print(f"目标分区：{DT} | 表：{TARGET_TABLE}")
 
         # 1. 获取Token

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 秒针Campaign广告位详情采集脚本
 功能：采集数据并分批写入ODPS（仅首次清空分区，最终存储全量数据）
@@ -114,12 +113,6 @@ def write_to_odps(table_name: str, data: List[List], dt: str):
 def get_etl_datetime() -> str:
     """获取当前时间戳（yyyy-MM-dd HH:mm:ss）"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-def get_partition_date() -> str:
-    """获取分区日期（yyyyMMdd）"""
-    return datetime.now().strftime("%Y%m%d")
-
 
 def to_string(value) -> str:
     """
@@ -362,7 +355,7 @@ def main():
         # 4. 遍历采集数据 + 分批写入
         all_spot_detail_data = []
         target_table = CONFIG["odps"]["table_name"]
-        partition_dt = get_partition_date()
+        partition_dt = args['dt']
 
         for campaign_id in campaign_ids:
             # 获取当前campaign的spot_id_str列表

@@ -109,8 +109,8 @@ PARTITIONED BY
 )
 ;
 
-drop table if exists coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di;
-CREATE TABLE IF NOT EXISTS ods_mz_tvm_basic_show_api_di (
+drop table if exists coach_marketing_hub.ods_mz_tvm_basic_show_api_di;
+CREATE TABLE  coach_marketing_hub.ods_mz_tvm_basic_show_api_di (
     -- ===================== 请求参数（核心需求） =====================
     request_campaign_id     STRING COMMENT '请求参数-活动ID',
     request_date            STRING COMMENT '请求参数-数据日期(yyyy-MM-dd)',
@@ -565,4 +565,13 @@ PARTITIONED BY
 (
     dt             STRING COMMENT '分区日期(yyyyMMdd)'
 )
+;
+
+
+CREATE TABLE  coach_marketing_hub_dev.ods_mz_user_api_df (
+    api_source     STRING COMMENT '数据来源',
+    username            STRING COMMENT '用户名',
+    passwords         STRING COMMENT '密码'
+)
+COMMENT '秒针API接口账号信息'
 ;
