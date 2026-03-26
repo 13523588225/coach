@@ -50,11 +50,6 @@ def get_etl_datetime():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def get_partition_dt():
-    """获取分区日期（yyyyMMdd）"""
-    return datetime.now().strftime("%Y%m%d")
-
-
 def get_miaozhen_token():
     print("🔍 获取秒针Token...")
     try:
@@ -261,8 +256,7 @@ def main():
         # 组装数据 + 写入MaxCompute
         if all_spots:
             data = assemble_spot_data(all_spots)
-            partition_dt = get_partition_dt()
-            write_odps_data(odps, data, partition_dt)
+            write_odps_data(odps, data, args['dt'])
         else:
             print("⚠️ 未采集到任何广告位数据，跳过写入")
 
