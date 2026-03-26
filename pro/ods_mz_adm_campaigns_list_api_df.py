@@ -175,7 +175,7 @@ def main():
         write_to_odps(
             table_name=CONFIG["table_name"],
             data=odps_rows,
-            args['dt']
+            dt=args['dt']
         )
 
         print("\n" + "=" * 80)
