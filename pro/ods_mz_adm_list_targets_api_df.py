@@ -33,7 +33,7 @@ API_CONFIG = {
 # 2. 目标表配置
 TABLE_CONFIG = {
     "table_name": "ods_mz_adm_list_targets_api_df",
-    "dt": datetime.now().strftime("%Y%m%d")  # 动态分区（当日日期）
+    "dt": args['dt']
 }
 
 # ===================== 全局ODPS项目变量（仅保留核心定义） =====================
