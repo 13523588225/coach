@@ -68,7 +68,7 @@ CONFIG = {
         "interval": 0.02,
         "parallelism": 10  # campaign_show_spot_url接口并行度
     },
-    "batch_size": 1000  # 批量写入大小（1000条/批）
+    "batch_size": 20000  # 批量写入大小（2000条/批）
 }
 
 # 全局标记：是否已清空分区（确保仅清空一次）
