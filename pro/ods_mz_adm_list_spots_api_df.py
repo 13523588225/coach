@@ -26,7 +26,7 @@ CONFIG = {
         "campaign_batch_size": 20  # 活动批量采集大小
     },
     "table_name": "ods_mz_adm_list_spots_api_df",  # MaxCompute目标表名
-    "batch_size": 1000  # ODPS批量写入大小
+    "batch_size": 20000  # ODPS批量写入大小
 }
 
 # 自动获取ODPS项目名
