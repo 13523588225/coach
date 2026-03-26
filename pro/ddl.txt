@@ -132,7 +132,6 @@ CREATE TABLE IF NOT EXISTS ods_mz_tvm_basic_show_api_di (
     audience                STRING COMMENT '受众类型',
     universe                STRING COMMENT '受众范围',
     region_id               STRING COMMENT '地域ID',
-    region_id               STRING COMMENT '地域ID',
     target_def              STRING COMMENT '受众定向规则',
     target_name             STRING COMMENT '受众名称',
     target_id               STRING COMMENT '受众ID',
