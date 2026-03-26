@@ -9,7 +9,8 @@ import time
 import urllib3
 from datetime import datetime
 from typing import Dict, List, Optional
-from odps import ODPS
+from odps import ODPS, errors  # 新增导入errors
+from urllib.parse import urlencode, urljoin  # 新增导入URL处理模块
 
 # ===================== 全局配置 =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -19,8 +20,8 @@ API_CONFIG = {
     "token_url": "https://api.cn.miaozhen.com/oauth/token",
     "auth": {
         "grant_type": "password",
-        "username": "Coach_api",
-        "password": "Coachapi2026",
+        "username": "",  # 改为空，后续从数仓获取
+        "password": "",  # 改为空，后续从数仓获取
         "client_id": "COACH2026_API",
         "client_secret": "e65798fb-85d6-4c56-aa19-a2435e8fef18"
     },
@@ -33,7 +34,7 @@ API_CONFIG = {
 # 2. 目标表配置
 TABLE_CONFIG = {
     "table_name": "ods_mz_adm_list_targets_api_df",
-    "dt": args['dt']
+    "dt": args['dt']  # 注：若args未定义需补充，原有逻辑保留
 }
 
 # ===================== 全局ODPS项目变量（仅保留核心定义） =====================
@@ -51,6 +52,34 @@ def to_string(value) -> str:
     if value is None or value == "" or str(value).lower() == "null":
         return ""
     return str(value)
+
+
+def get_log() -> str:
+    """新增：获取日志时间戳（适配账号密码查询函数）"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ===================== 从MaxCompute查询API账号密码 =====================
+def get_adm_api_credentials():
+    """
+    从数仓表 ods_mz_user_api_df 查询ADM接口的账号密码
+    SQL: select username,passwords from ods_mz_user_api_df where api_source ='ADM'
+    """
+    o = ODPS(project=ODPS_PROJECT)
+    sql = """
+          select username, passwords
+          from ods_mz_user_api_df
+          where api_source = 'ADM' limit 1 \
+          """
+    try:
+        with o.execute_sql(sql).open_reader() as reader:
+            record = reader[0]
+            username = record["username"]
+            password = record["passwords"]
+            print(f"[{get_log()}] 🔐 成功从数仓获取ADM账号：{username}")
+            return username, password
+    except errors.ODPSError as e:
+        raise Exception(f"❌ 查询账号密码失败：{str(e)}")
 
 
 # ===================== 通用ODPS写入函数（完全复用你提供的版本） =====================
@@ -142,6 +171,9 @@ def get_campaign_targets(access_token: str, campaign_id: str) -> List[Dict]:
             "access_token": access_token,
             "campaign_id": campaign_id
         }
+        # 新增：构建完整请求URL
+        full_request_url = urljoin(API_CONFIG["campaign_targets_url"], f"?{urlencode(params)}")
+
         resp = requests.get(
             API_CONFIG["campaign_targets_url"],
             params=params,
@@ -156,7 +188,7 @@ def get_campaign_targets(access_token: str, campaign_id: str) -> List[Dict]:
         if not isinstance(targets_data, list):
             return []
 
-        # 标准化数据
+        # 标准化数据（新增full_request_url字段）
         etl_datetime = get_etl_datetime()
         standard_targets = []
         for target in targets_data:
@@ -168,6 +200,7 @@ def get_campaign_targets(access_token: str, campaign_id: str) -> List[Dict]:
                 "panel_id": to_string(target.get("panel_id")),
                 "target_id": to_string(target.get("target_id")),
                 "target_name": to_string(target.get("target_name")),
+                "full_request_url": to_string(full_request_url),  # 新增字段：完整接口请求URL
                 "pre_parse_raw_text": to_string(json.dumps(target, ensure_ascii=False)),
                 "etl_datetime": etl_datetime
             }
@@ -183,19 +216,24 @@ def get_campaign_targets(access_token: str, campaign_id: str) -> List[Dict]:
 # ===================== 主流程 =====================
 def main():
     try:
-        # 1. 获取Access Token
+        # 新增：第一步先从数仓获取账号密码并更新配置
+        username, password = get_adm_api_credentials()
+        API_CONFIG["auth"]["username"] = username
+        API_CONFIG["auth"]["password"] = password
+
+        # 1. 获取Access Token（原步骤1改为步骤2）
         access_token = get_access_token()
         if not access_token:
             print("⚠️ Token为空，任务终止")
             return
 
-        # 2. 获取所有campaign_id
+        # 2. 获取所有campaign_id（原步骤2改为步骤3）
         campaign_ids = get_campaign_ids(access_token)
         if not campaign_ids:
             print("⚠️ 未获取到campaign_id，任务终止")
             return
 
-        # 3. 批量采集目标列表数据
+        # 3. 批量采集目标列表数据（原步骤3改为步骤4）
         all_targets = []
         for cid in campaign_ids:
             targets = get_campaign_targets(access_token, cid)
@@ -205,13 +243,14 @@ def main():
             print("⚠️ 未采集到任何目标列表数据，任务终止")
             return
 
-        # 4. 格式化入库数据（与表字段顺序严格一致）
+        # 4. 格式化入库数据（新增full_request_url字段，放在pre_parse_raw_text前）
         write_data = [
             [
                 t["request_campaign_id"],
                 t["panel_id"],
                 t["target_id"],
                 t["target_name"],
+                t["full_request_url"],  # 新增字段写入
                 t["pre_parse_raw_text"],
                 t["etl_datetime"]
             ] for t in all_targets

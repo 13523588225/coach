@@ -3,13 +3,13 @@
 功能：采集数据并分批写入ODPS（仅首次清空分区，最终存储全量数据）
 新增：1. 任务执行时间统计 2. campaign_show_spot_url接口并行访问（并行度=10）
 数据来源：/cms/v1/campaigns/show_spot 接口
-适配表结构：ods_mz_adm_show_spot_api_df（含keyword字段）
-依赖：odps库（pip install odps）
 """
 import requests
 import json
 import time
 import urllib3
+import threading  # 提前导入线程模块，避免worker函数中引用报错
+from urllib.parse import urlencode  # 新增：用于拼接完整请求URL
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from odps import ODPS
@@ -47,6 +47,7 @@ CONFIG = {
             "spot_id_str",
             "keyword",  # 关键词列表（JSON格式）
             "adposition_type",
+            "full_request_url",      # 新增：完整接口请求URL（严格放在pre_parse_raw_text前）
             "pre_parse_raw_text",
             "etl_datetime"
         ]
@@ -56,8 +57,8 @@ CONFIG = {
         "token_url": "https://api.cn.miaozhen.com/oauth/token",
         "auth": {
             "grant_type": "password",
-            "username": "Coach_api",
-            "password": "Coachapi2026",
+            "username": "",
+            "password": "",
             "client_id": "COACH2026_API",
             "client_secret": "e65798fb-85d6-4c56-aa19-a2435e8fef18"
         },
@@ -68,7 +69,7 @@ CONFIG = {
         "interval": 0.02,
         "parallelism": 10  # campaign_show_spot_url接口并行度
     },
-    "batch_size": 1000  # 批量写入大小（1000条/批）
+    "batch_size": 20000  # 批量写入大小（20000条/批）
 }
 
 # 全局标记：是否已清空分区（确保仅清空一次）
@@ -227,7 +228,7 @@ def get_spot_id_str_list(token: str, campaign_id: str) -> List[str]:
 def get_spot_detail_worker(token: str, campaign_id: str, spot_id_str: str) -> Optional[Dict]:
     """
     单个广告位详情采集工作函数（供线程池调用）
-    核心：处理keyword字段（JSON格式）、接口必传参数keyword=on
+    核心：处理keyword字段（JSON格式）、接口必传参数keyword=on、新增full_request_url字段
     """
     try:
         # 接口请求参数（新增必传参数keyword=on）
@@ -237,6 +238,9 @@ def get_spot_detail_worker(token: str, campaign_id: str, spot_id_str: str) -> Op
             "access_token": token,
             "keyword": "on"
         }
+        # 构建完整请求URL（含参数）
+        full_request_url = f"{CONFIG['api']['campaign_show_spot_url']}?{urlencode(params)}"
+
         resp = requests.get(
             CONFIG["api"]["campaign_show_spot_url"],
             params=params,
@@ -263,12 +267,14 @@ def get_spot_detail_worker(token: str, campaign_id: str, spot_id_str: str) -> Op
             elif col == "keyword":
                 # 特殊处理：keyword字段序列化为JSON字符串
                 standard_spot[col] = to_string(spot_detail.get(col, ""))
+            elif col == "full_request_url":  # 新增：赋值完整请求URL
+                standard_spot[col] = to_string(full_request_url)
+            elif col == "pre_parse_raw_text":
+                # 补充原始文本字段（完整接口返回数据，用于排查问题）
+                standard_spot[col] = to_string(json.dumps(spot_detail, ensure_ascii=False))
             else:
                 # 通用字段处理
                 standard_spot[col] = to_string(spot_detail.get(col, ""))
-
-        # 补充原始文本字段（完整接口返回数据，用于排查问题）
-        standard_spot["pre_parse_raw_text"] = to_string(json.dumps(spot_detail, ensure_ascii=False))
 
         print(
             f"✅ campaign_id={campaign_id}, spot_id_str={spot_id_str} 采集成功（线程：{threading.current_thread().name}）")
@@ -355,6 +361,11 @@ def main():
         # 4. 遍历采集数据 + 分批写入
         all_spot_detail_data = []
         target_table = CONFIG["odps"]["table_name"]
+        # 补充dt参数（适配生产环境传参逻辑，若通过命令行传参可替换为sys.argv）
+        import sys
+        args = {"dt": datetime.now().strftime("%Y%m%d")}  # 默认使用当日日期，可根据实际传参调整
+        if len(sys.argv) > 1:
+            args["dt"] = sys.argv[1]
         partition_dt = args['dt']
 
         for campaign_id in campaign_ids:
@@ -415,7 +426,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # 新增线程模块导入（修复worker函数中threading引用）
-    import threading
-
     main()
