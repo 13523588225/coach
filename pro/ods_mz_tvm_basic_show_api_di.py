@@ -7,6 +7,7 @@ import urllib3
 import traceback
 from datetime import datetime
 from typing import Dict, List
+from urllib.parse import urlencode
 from odps import ODPS, errors
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -23,35 +24,35 @@ API_CONFIG = {
     "request_interval": 0.003
 }
 
-# 2. ODPS配置
-ODPS_PROJECT = ODPS().project
-# ODPS_PROJECT = "coach_marketing_hub_dev"
+# 2. ODPS 配置（DataWorks原生授权，无需AK）
 TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
 
-# 3. 单分区日期
+# 3. 调度日期参数
 DT = args['dt']
 
-# 4. 接口维度参数（调整为更安全的组合，避免无效参数）
+# 4. 接口维度参数
 REPORT_PARAMS = {
     "metrics": "all",
     "by_region": ["level0", "level1", "level2"],
     "by_audience": ["overall", "stable", "target"],
     "platform": ["pc", "pm", "mb"],
-    "by_position": ["campaign", "publisher", "spot"]
+    "by_position": ["campaign", "publisher", "spot", "keyword"]
 }
 
 # 5. 并行/批次配置
 PARALLEL_CONFIG = {
-    "max_workers": 6,  # 降低并发数，避免接口限流
+    "max_workers": 6,
     "batch_size": 50000
 }
 
 # 6. 小时字段
 HOUR_FIELDS = [f"h{i:02d}" for i in range(24)]
 
-# ===================== 全局性能优化 =====================
+# ===================== 全局初始化 =====================
 SESSION = requests.Session()
 gc.disable()
+# 【修复】DataWorks原生ODPS单例初始化，彻底解决project获取失败
+ODPS_INSTANCE = ODPS()
 
 
 # ===================== 工具函数 =====================
@@ -131,7 +132,6 @@ def get_campaign_list(token: str) -> List[Dict]:
         valid_campaigns = []
         for c in campaigns:
             if isinstance(c, dict) and c.get("campaign_id"):
-                # 过滤掉日期不匹配的活动
                 camp_start = to_string(c.get("start_time"))
                 camp_end = to_string(c.get("end_time"))
                 if is_date_in_campaign_valid(DT, camp_start, camp_end):
@@ -161,9 +161,9 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
             for platform in REPORT_PARAMS["platform"]:
                 for by_position in REPORT_PARAMS["by_position"]:
                     try:
-                        # 核心修复：请求参数中加入access_token
+                        # 构造完整请求参数
                         request_params = {
-                            "access_token": token,  # 新增：必传的token参数
+                            "access_token": token,
                             "campaign_id": camp_id,
                             "date": report_date_10bit,
                             "metrics": REPORT_PARAMS["metrics"],
@@ -173,44 +173,37 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                             "by_position": by_position
                         }
 
-                        # ========== 全量参数打印（不含token）+ 接口耗时 ==========
-                        req_start = time.time()
+                        # 拼接完整请求URL
+                        full_request_url = f"{API_CONFIG['report_basic_url']}?{urlencode(request_params)}"
 
+                        # 接口请求
+                        req_start = time.time()
                         resp = SESSION.get(
                             API_CONFIG["report_basic_url"],
                             params=request_params,
                             timeout=API_CONFIG["timeout"],
                             verify=False
                         )
-
                         req_cost = round(time.time() - req_start, 4)
 
-                        # 打印请求参数（隐藏token）
+                        # 日志打印
                         log_params = request_params.copy()
                         log_params.pop("access_token", None)
-                        print(
-                            f"📡 接口请求 | campaign={camp_id} | 参数={log_params} | 耗时={req_cost}s")
+                        print(f"📡 接口请求 | campaign={camp_id} | 参数={log_params} | 耗时={req_cost}s")
 
                         resp.raise_for_status()
                         raw_data = resp.json()
 
-                        # ===================== 无有效数据判定 + 详细日志 =====================
+                        # 异常处理：打印完整URL
                         if raw_data.get("error_code") != 0:
-                            print(f"⚠️  接口返回错误 | campaign={camp_id} | 错误信息：{raw_data.get('error_message')}")
+                            print(f"⚠️  接口返回错误 | campaign={camp_id} | URL={full_request_url} | 信息：{raw_data.get('error_message')}")
                             time.sleep(API_CONFIG["request_interval"])
                             continue
 
                         result = raw_data.get("result", {})
                         items = result.get("items", [])
-
-                        if not result or items is None or len(items) == 0:
-                            print(f"⚠️  接口无有效数据 | campaign={camp_id} | URL：{resp.url}")
-                            time.sleep(API_CONFIG["request_interval"])
-                            continue
-                        # ======================================================================
-
-                        if not all([result.get("date"), result.get("campaignId"), result.get("items")]):
-                            print(f"⚠️  接口返回数据不完整 | campaign={camp_id} | URL：{resp.url}")
+                        if not items:
+                            print(f"⚠️  接口无有效数据 | campaign={camp_id} | URL={full_request_url}")
                             time.sleep(API_CONFIG["request_interval"])
                             continue
 
@@ -220,32 +213,42 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                             if not isinstance(item, dict):
                                 continue
                             attributes = item.get("attributes", {})
-                            metrics = item.get("metrics", {}) if item.get("metrics") is not None else {}
+                            metrics = item.get("metrics", {}) or {}
 
                             pre_parse_raw_text = to_string(
-                                json.dumps({"attributes": attributes, "metrics": metrics}, ensure_ascii=False,
-                                           indent=None)
+                                json.dumps({"attributes": attributes, "metrics": metrics}, ensure_ascii=False)
                             )
 
+                            # 严格对齐表结构字段顺序
                             write_row = [
+                                # 1. 请求参数（request_前缀）
                                 to_string(request_params["campaign_id"]),
                                 to_string(request_params["date"]),
                                 to_string(request_params["metrics"]),
                                 to_string(request_params["by_position"]),
                                 to_string(request_params["by_region"]),
+                                to_string(request_params["by_audience"]),
+                                to_string(request_params["platform"]),
 
+                                # 2. 业务基础字段
                                 to_string(result.get("campaignId")),
                                 to_string(camp_start),
                                 to_string(camp_end),
                                 to_string(result.get("date")),
                                 to_bigint(result.get("version")),
+
+                                # 3. attributes 安全取值（无则为空）
                                 to_string(attributes.get("publisher_id")),
                                 to_string(attributes.get("spot_id")),
                                 to_string(attributes.get("spot_id_str")),
                                 to_string(attributes.get("audience")),
                                 to_string(attributes.get("universe")),
                                 to_string(attributes.get("region_id")),
+                                to_string(attributes.get("target_def")),
+                                to_string(attributes.get("target_name")),
+                                to_string(attributes.get("target_id")),
 
+                                # 4. 核心指标
                                 to_bigint(metrics.get("imp_acc")),
                                 to_bigint(metrics.get("clk_acc")),
                                 to_bigint(metrics.get("uim_acc")),
@@ -259,9 +262,12 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                                 to_bigint(metrics.get("uim_avg_day")),
                                 to_bigint(metrics.get("ucl_avg_day")),
 
+                                # 5. 24小时分时指标
                                 *[to_bigint(metrics.get(f"imp_{hour}")) for hour in HOUR_FIELDS],
                                 *[to_bigint(metrics.get(f"clk_{hour}")) for hour in HOUR_FIELDS],
 
+                                # 6. 新增字段
+                                to_string(full_request_url),
                                 pre_parse_raw_text,
                                 etl_datetime
                             ]
@@ -269,11 +275,10 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
 
                         time.sleep(API_CONFIG["request_interval"])
 
-                    # ===================== 【关键】捕获所有异常并打印详细堆栈 =====================
                     except Exception as e:
-                        print(f"❌ 接口请求失败 | campaign={camp_id}")
+                        # 请求异常打印完整URL
+                        print(f"❌ 接口请求失败 | campaign={camp_id} | URL={full_request_url}")
                         print(f"❌ 错误信息：{str(e)}")
-                        print(f"❌ 完整堆栈：")
                         traceback.print_exc()
                         time.sleep(API_CONFIG["request_interval"])
                         continue
@@ -281,13 +286,14 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
     return campaign_data
 
 
-# ===================== ODPS 写入（带批次时间打印） =====================
+# ===================== ODPS 写入 =====================
 def write_to_odps_partition(table_name: str, data: List[List]):
     if not data:
         print(f"⚠️ 分区{DT}无数据可写入，跳过")
         return
 
-    o = ODPS(project=ODPS_PROJECT)
+    # 使用全局单例ODPS实例，彻底解决project获取失败
+    o = ODPS_INSTANCE
     if not o.exist_table(table_name):
         raise Exception(f"ODPS表不存在：{table_name}")
 
@@ -322,7 +328,7 @@ def write_to_odps_partition(table_name: str, data: List[List]):
             total_batch_time += batch_cost
             print(f"💾 批次{i + 1}/{batch_num} 入库完成 | 条数={len(batch_data)} | 耗时={batch_cost}s")
 
-        print(f"✅ 分区{DT}全部写入完成，总入库耗时{round(total_batch_time, 2)}秒")
+        print(f"✅ 分区{DT}全部写入完成，总耗时{round(total_batch_time, 2)}秒")
 
     except errors.ODPSError as e:
         raise Exception(f"ODPS写入失败：{str(e)}")
@@ -339,7 +345,7 @@ def main():
         token = get_miaozhen_token()
         print(f"✅ Token获取成功")
 
-        # 2. 获取活动列表（已过滤日期）
+        # 2. 获取活动列表
         campaign_list = get_campaign_list(token)
         if not campaign_list:
             print("⚠️ 无符合日期条件的活动，任务结束")
@@ -348,7 +354,7 @@ def main():
         print(f"\n========== 处理分区：{DT} ==========")
         daily_write_data = []
 
-        # 3. 并行解析活动数据
+        # 3. 并行处理
         with ThreadPoolExecutor(max_workers=PARALLEL_CONFIG["max_workers"]) as executor:
             future_to_campaign = {
                 executor.submit(parse_single_campaign, token, campaign): campaign
