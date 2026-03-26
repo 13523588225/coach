@@ -41,11 +41,6 @@ def safe_str(val):
     return str(val)
 
 
-def get_partition_dt():
-    """获取分区日期（YYYYMMDD）"""
-    return datetime.now().strftime("%Y%m%d")
-
-
 # ====================== 通用ODPS写入函数（完全复用你提供的版本） ======================
 def write_to_odps(table_name: str, data: List[List], dt: str):
     """通用ODPS写入函数（清空分区+写入）"""
@@ -176,14 +171,11 @@ def main():
         # 3. 组装数据（保留start_date/end_date字段）
         odps_rows = assemble_odps_data(campaign_data)
 
-        # 4. 获取分区日期
-        dt = get_partition_dt()
-
-        # 5. 调用通用写入函数写入ODPS
+        # 4. 调用通用写入函数写入ODPS
         write_to_odps(
             table_name=CONFIG["table_name"],
             data=odps_rows,
-            dt=dt
+            args['dt']
         )
 
         print("\n" + "=" * 80)
