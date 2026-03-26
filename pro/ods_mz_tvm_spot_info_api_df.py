@@ -13,7 +13,7 @@ import urllib3
 from datetime import datetime, date
 from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from odps import ODPS
+from odps import ODPS, errors
 
 # ===================== 基础配置 =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -24,7 +24,7 @@ API_CONFIG = {
     "campaign_list_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/campaigns/list",
     "spot_list_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/spot/list",
     "spot_info_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/spot/info",
-    "auth": {"username": "Coach_api", "password": "Coachapi2026"},
+    "auth": {"username": "", "password": ""},  # 动态从数仓获取
     "timeout": 30,
     "request_interval": 0.01,  # 缩短请求间隔为0.01秒
     "max_workers": 10  # 并行线程数（可根据接口限流调整）
@@ -50,6 +50,34 @@ def to_string(value) -> str:
     if value is None or value == "" or str(value).lower() == "null":
         return ""
     return str(value)
+
+
+def get_log() -> str:
+    """获取日志时间戳"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ===================== 从MaxCompute查询API账号密码 =====================
+def get_tvm_api_credentials():
+    """
+    从数仓表 ods_mz_user_api_df 查询TVM接口的账号密码
+    """
+    o = ODPS(project=ODPS_PROJECT)
+    sql = """
+    select username, passwords 
+    from ods_mz_user_api_df 
+    where api_source = 'TVM'
+    limit 1
+    """
+    try:
+        with o.execute_sql(sql).open_reader() as reader:
+            record = reader[0]
+            username = record["username"]
+            password = record["passwords"]
+            print(f"[{get_log()}] 🔐 成功从数仓获取TVM账号：{username}")
+            return username, password
+    except errors.ODPSError as e:
+        raise Exception(f"❌ 查询账号密码失败：{str(e)}")
 
 
 # ===================== ODPS写入 =====================
@@ -81,6 +109,11 @@ def write_to_odps(table_name: str, data: List[List], dt: str):
 def get_miaozhen_token() -> str:
     """获取秒针TV监测Token"""
     try:
+        # 从数仓获取账号密码并更新配置
+        username, password = get_tvm_api_credentials()
+        API_CONFIG["auth"]["username"] = username
+        API_CONFIG["auth"]["password"] = password
+
         resp = requests.post(
             API_CONFIG["token_url"],
             data=API_CONFIG["auth"],
@@ -157,6 +190,9 @@ def get_spot_info_worker(token: str, request_spid_str: str, request_campaign_id:
             "spid_str": request_spid_str,
             "campaign_id": request_campaign_id
         }
+        # 构建完整请求URL
+        full_request_url = f"{API_CONFIG['spot_info_url']}?access_token={token}&spid_str={request_spid_str}&campaign_id={request_campaign_id}"
+
         resp = requests.get(
             API_CONFIG["spot_info_url"],
             params=params,
@@ -213,6 +249,9 @@ def get_spot_info_worker(token: str, request_spid_str: str, request_campaign_id:
             "play_info": to_string(result.get("play_info")),
             "tag_place": to_string(result.get("tag_place")),
             "multi_tag": to_string(result.get("multi_tag")),
+
+            # 新增字段：完整接口请求URL
+            "full_request_url": to_string(full_request_url),
 
             # 溯源字段
             "pre_parse_raw_text": to_string(json.dumps(result, ensure_ascii=False)),
@@ -308,6 +347,9 @@ def main():
                 t["play_info"],
                 t["tag_place"],
                 t["multi_tag"],
+
+                # 新增字段：完整接口请求URL
+                t["full_request_url"],
 
                 # 溯源字段
                 t["pre_parse_raw_text"],

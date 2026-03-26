@@ -11,7 +11,7 @@ import time
 import urllib3
 from datetime import datetime
 from typing import Dict, List, Optional
-from odps import ODPS
+from odps import ODPS, errors
 
 # ===================== 基础配置 =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -21,7 +21,6 @@ API_CONFIG = {
     "token_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/token/get",
     "campaign_list_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/campaigns/list",
     "campaign_target_info_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/campaign/target/info",
-    "auth": {"username": "Coach_api", "password": "Coachapi2026"},
     "timeout": 30,
     "request_interval": 0.2  # 接口调用间隔，避免限流
 }
@@ -39,6 +38,11 @@ def get_etl_datetime() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def get_log() -> str:
+    """获取日志时间戳"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 def to_string(value) -> str:
     """强制转换为字符串，处理空值/None"""
     if value is None or value == "" or str(value).lower() == "null":
@@ -46,13 +50,38 @@ def to_string(value) -> str:
     return str(value)
 
 
+# ===================== 从MaxCompute查询API账号密码 =====================
+def get_tvm_api_credentials():
+    """
+    从数仓表 ods_mz_user_api_df 查询TVM接口的账号密码
+    """
+    o = ODPS(project=ODPS_PROJECT)
+    sql = """
+    select username, passwords 
+    from ods_mz_user_api_df 
+    where api_source = 'TVM'
+    limit 1
+    """
+    try:
+        with o.execute_sql(sql).open_reader() as reader:
+            record = reader[0]
+            username = record["username"]
+            password = record["passwords"]
+            print(f"[{get_log()}] 🔐 成功从数仓获取TVM账号：{username}")
+            return username, password
+    except errors.ODPSError as e:
+        raise Exception(f"❌ 查询账号密码失败：{str(e)}")
+
+
 # ===================== 秒针接口调用 =====================
 def get_miaozhen_token() -> str:
     """获取秒针TV监测Token"""
     try:
+        # 从数仓获取账号密码
+        username, password = get_tvm_api_credentials()
         resp = requests.post(
             API_CONFIG["token_url"],
-            data=API_CONFIG["auth"],
+            data={"username": username, "password": password},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=API_CONFIG["timeout"],
             verify=False
@@ -98,6 +127,8 @@ def get_campaign_target_info(token: str, request_campaign_id: str) -> List[Dict]
             "access_token": token,
             "campaign_id": request_campaign_id
         }
+        # 构造完整请求URL
+        full_request_url = f"{API_CONFIG['campaign_target_info_url']}?access_token={token}&campaign_id={request_campaign_id}"
         # 调用目标信息接口
         resp = requests.get(
             API_CONFIG["campaign_target_info_url"],
@@ -139,6 +170,9 @@ def get_campaign_target_info(token: str, request_campaign_id: str) -> List[Dict]
                 "update_time": to_string(target.get("update_time")),
                 "target_name": to_string(target.get("target_name")),
                 "target_id": to_string(target.get("target_id")),
+
+                # 新增字段：完整接口请求URL
+                "full_request_url": to_string(full_request_url),
 
                 # 补充溯源字段
                 "pre_parse_raw_text": to_string(json.dumps(result, ensure_ascii=False)),
@@ -210,6 +244,7 @@ def main():
                 t["update_time"],
                 t["target_name"],
                 t["target_id"],
+                t["full_request_url"],
                 t["pre_parse_raw_text"],
                 t["etl_datetime"]
             ] for t in all_target_data

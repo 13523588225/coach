@@ -20,7 +20,7 @@ API_CONFIG = {
     "token_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/token/get",
     "campaign_list_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/campaigns/list",
     "report_basic_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/reports/basic/show",
-    "auth": {"username": "Coach_api", "password": "Coachapi2026"},
+    "auth": {"username": "", "password": ""},  # 改为动态获取
     "timeout": 30,
     "request_interval": 0.003
 }
@@ -57,6 +57,11 @@ gc.disable()
 
 # ===================== 工具函数 =====================
 def get_etl_time() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def get_log() -> str:
+    """获取日志时间戳"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -98,12 +103,41 @@ def to_bigint(value) -> int:
         return 0
 
 
+# ===================== 从MaxCompute查询API账号密码 =====================
+def get_tvm_api_credentials():
+    """
+    从数仓表 ods_mz_user_api_df 查询TVM接口的账号密码
+    """
+    o = ODPS(project=ODPS_PROJECT)
+    sql = """
+    select username, passwords 
+    from ods_mz_user_api_df 
+    where api_source = 'TVM'
+    limit 1
+    """
+    try:
+        with o.execute_sql(sql).open_reader() as reader:
+            record = reader[0]
+            username = record["username"]
+            password = record["passwords"]
+            print(f"[{get_log()}] 🔐 成功从数仓获取TVM账号：{username}")
+            return username, password
+    except errors.ODPSError as e:
+        raise Exception(f"❌ 查询账号密码失败：{str(e)}")
+
+
 # ===================== 接口调用 =====================
 def get_miaozhen_token() -> str:
     try:
+        # 动态获取账号密码
+        username, password = get_tvm_api_credentials()
+        auth_data = {
+            "username": username,
+            "password": password
+        }
         resp = SESSION.post(
             API_CONFIG["token_url"],
-            data=API_CONFIG["auth"],
+            data=auth_data,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=API_CONFIG["timeout"],
             verify=False
@@ -269,7 +303,7 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                                 *[to_bigint(metrics.get(f"clk_{hour}")) for hour in HOUR_FIELDS],
 
                                 # 7. 新增字段（严格顺序）
-                                to_string(full_request_url),
+                                to_string(full_request_url),  # 新增：完整接口请求URL
                                 pre_parse_raw_text,
                                 etl_datetime
                             ]
@@ -340,7 +374,7 @@ def main():
     try:
         task_start_time = time.time()
         print(f"===== 任务开始：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
-        print(f"项目名称：{ODPS_PROJECT}")    
+        print(f"项目名称：{ODPS_PROJECT}")
         print(f"目标分区：{DT} | 表：{TARGET_TABLE}")
 
         # 1. 获取Token

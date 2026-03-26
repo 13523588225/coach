@@ -8,16 +8,15 @@ from datetime import datetime
 from typing import Dict, List
 import requests
 import urllib3
-from odps import ODPS
+from odps import ODPS, errors  # 新增导入errors
 
 # ===================== 基础配置 =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 1. 秒针接口配置
+# 1. 秒针接口配置（移除固定账号密码）
 API_CONFIG = {
     "token_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/token/get",
     "campaign_list_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/campaigns/list",
-    "auth": {"username": "Coach_api", "password": "Coachapi2026"},
     "timeout": 30,
     "request_interval": 0.2
 }
@@ -63,14 +62,41 @@ def to_string(value) -> str:
         return ""
     return str(value)
 
+def get_log() -> str:
+    """获取日志时间戳"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+# ===================== 从MaxCompute查询API账号密码 =====================
+def get_tvm_api_credentials():
+    """
+    从数仓表 ods_mz_user_api_df 查询TVM接口的账号密码
+    """
+    o = ODPS(project=ODPS_PROJECT)
+    sql = """
+    select username, passwords 
+    from ods_mz_user_api_df 
+    where api_source = 'TVM'
+    limit 1
+    """
+    try:
+        with o.execute_sql(sql).open_reader() as reader:
+            record = reader[0]
+            username = record["username"]
+            password = record["passwords"]
+            print(f"[{get_log()}] 🔐 成功从数仓获取TVM账号：{username}")
+            return username, password
+    except errors.ODPSError as e:
+        raise Exception(f"❌ 查询账号密码失败：{str(e)}")
 
 # ===================== 秒针接口调用 =====================
 def get_miaozhen_token() -> str:
-    """获取秒针Token"""
+    """获取秒针Token（动态获取账号密码）"""
     try:
+        # 从数仓获取账号密码
+        username, password = get_tvm_api_credentials()
         resp = requests.post(
             API_CONFIG["token_url"],
-            data=API_CONFIG["auth"],
+            data={"username": username, "password": password},  # 使用动态获取的账号密码
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=API_CONFIG["timeout"],
             verify=False
@@ -90,8 +116,10 @@ def get_miaozhen_token() -> str:
 def get_campaign_list(token: str) -> List[Dict]:
     """获取活动列表（所有字段转字符串）"""
     try:
+        # 构造完整请求URL
+        full_request_url = f"{API_CONFIG['campaign_list_url']}?access_token={token}"
         resp = requests.get(
-            f"{API_CONFIG['campaign_list_url']}?access_token={token}",
+            full_request_url,
             timeout=API_CONFIG["timeout"],
             verify=False
         )
@@ -119,13 +147,12 @@ def get_campaign_list(token: str) -> List[Dict]:
             "sivt_region": to_string(c.get("sivt_region")),
             "target_list": to_string(c.get("target_list")),
             "order_title": to_string(c.get("order_title")),
+            "full_request_url": to_string(full_request_url),  # 新增字段：完整接口请求URL
             "pre_parse_raw_text": to_string(json.dumps(c, ensure_ascii=False)),
             "etl_datetime": to_string(etl_datetime)
         } for c in campaigns if isinstance(c, dict)]
     except Exception as e:
         raise Exception(f"采集活动列表失败：{str(e)}")
-
-
 
 
 # ===================== ODPS写入 =====================
@@ -190,6 +217,7 @@ def main():
                 c["sivt_region"],
                 c["target_list"],
                 c["order_title"],
+                c["full_request_url"],  # 新增字段写入
                 c["pre_parse_raw_text"],
                 c["etl_datetime"]
             ] for c in campaign_data

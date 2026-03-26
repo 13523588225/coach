@@ -14,9 +14,10 @@ import requests
 import json
 import time
 import urllib3
+import urllib.parse
 from datetime import datetime
 from typing import Dict, List, Optional
-from odps import ODPS
+from odps import ODPS, errors
 
 # ===================== 基础配置 =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -26,7 +27,6 @@ API_CONFIG = {
     "token_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/token/get",
     "campaign_list_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/campaigns/list",
     "spot_list_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/spot/list",
-    "auth": {"username": "Coach_api", "password": "Coachapi2026"},
     "timeout": 30,
     "request_interval": 0.2  # 接口调用间隔，避免限流
 }
@@ -51,13 +51,43 @@ def to_string(value) -> str:
     return str(value)
 
 
+def get_log() -> str:
+    """获取日志时间戳"""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ===================== 从MaxCompute查询API账号密码 =====================
+def get_tvm_api_credentials():
+    """
+    从数仓表 ods_mz_user_api_df 查询TVM接口的账号密码
+    """
+    o = ODPS(project=ODPS_PROJECT)
+    sql = """
+    select username, passwords 
+    from ods_mz_user_api_df 
+    where api_source = 'TVM'
+    limit 1
+    """
+    try:
+        with o.execute_sql(sql).open_reader() as reader:
+            record = reader[0]
+            username = record["username"]
+            password = record["passwords"]
+            print(f"[{get_log()}] 🔐 成功从数仓获取TVM账号：{username}")
+            return username, password
+    except errors.ODPSError as e:
+        raise Exception(f"❌ 查询账号密码失败：{str(e)}")
+
+
 # ===================== 秒针接口调用 =====================
 def get_miaozhen_token() -> str:
     """获取秒针TV监测Token"""
     try:
+        # 从数仓动态获取账号密码
+        username, password = get_tvm_api_credentials()
         resp = requests.post(
             API_CONFIG["token_url"],
-            data=API_CONFIG["auth"],
+            data={"username": username, "password": password},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=API_CONFIG["timeout"],
             verify=False
@@ -103,6 +133,11 @@ def get_spot_list(token: str, request_campaign_id: str) -> List[Dict]:
             "access_token": token,
             "campaign_id": request_campaign_id
         }
+        # 构建完整请求URL
+        full_request_url = requests.compat.urljoin(
+            API_CONFIG["spot_list_url"],
+            f"?{urllib.parse.urlencode(params, safe='=&')}"
+        )
         resp = requests.get(
             API_CONFIG["spot_list_url"],
             params=params,
@@ -163,6 +198,9 @@ def get_spot_list(token: str, request_campaign_id: str) -> List[Dict]:
                 "play_info": to_string(spot.get("play_info")),
                 "tag_place": to_string(spot.get("tag_place")),
                 "multi_tag": to_string(spot.get("multi_tag")),
+
+                # 新增字段：完整接口请求URL
+                "full_request_url": to_string(full_request_url),
 
                 # 补充溯源字段
                 "pre_parse_raw_text": to_string(json.dumps(spot, ensure_ascii=False)),
@@ -262,6 +300,9 @@ def main():
                 t["play_info"],
                 t["tag_place"],
                 t["multi_tag"],
+
+                # 新增的full_request_url字段
+                t["full_request_url"],
 
                 # 溯源字段
                 t["pre_parse_raw_text"],
