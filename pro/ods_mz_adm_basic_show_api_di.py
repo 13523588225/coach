@@ -15,9 +15,9 @@ urllib3.disable_warnings(InsecureRequestWarning)
 
 # ===================== 核心配置 =====================
 ODPS_PROJECT = "coach_marketing_hub_dev"
-DT = "20260301"
+DT = args['dt']
 PARALLEL_CONFIG = {
-    "batch_size": 1000
+    "batch_size": 20000
 }
 
 # ===================== 业务配置 =====================
