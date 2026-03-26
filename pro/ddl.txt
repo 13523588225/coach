@@ -1,6 +1,6 @@
 -- API表结构
-drop table if exists coach_marketing_hub_dev.ods_mz_adm_campaigns_list_api_df;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_campaigns_list_api_df
+drop table if exists coach_marketing_hub.ods_mz_adm_campaigns_list_api_df;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_campaigns_list_api_df
 (
     campaign_id         STRING COMMENT '活动ID'
     ,start_date         STRING COMMENT '活动开始日期'
@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_campaigns_list_api
     ,linked_panels      STRING COMMENT '关联面板'
     ,linked_siteids     STRING COMMENT '关联站点ID'
     ,slot_type          STRING COMMENT '广告位类型'
+    ,full_request_url   STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text STRING COMMENT '源解析文本'
     ,etl_datetime       STRING COMMENT '数据落地时间'
 )
@@ -27,8 +28,8 @@ PARTITIONED BY
 )
 ;
 
-drop table if exists coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di
+
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_basic_show_api_di
 (
     campaign_id           STRING COMMENT '活动ID',
     campaign_start_date   STRING COMMENT '活动开始日期',
@@ -99,6 +100,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_campaigns_list_api_df
     ,sivt_region        STRING COMMENT 'SIVT区域（可为空）'
     ,target_list        STRING COMMENT '目标列表（可为空，JSON格式）'
     ,order_title        STRING COMMENT '订单标题（可为空）'
+    ,full_request_url   STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text STRING COMMENT '源解析文本'
     ,etl_datetime       STRING COMMENT '数据采集时间（yyyy-MM-dd HH:mm:ss）'
 )
@@ -109,8 +111,8 @@ PARTITIONED BY
 )
 ;
 
-drop table if exists coach_marketing_hub.ods_mz_tvm_basic_show_api_di;
-CREATE TABLE  coach_marketing_hub.ods_mz_tvm_basic_show_api_di (
+
+CREATE TABLE if not exists coach_marketing_hub.ods_mz_tvm_basic_show_api_di (
     -- ===================== 请求参数（核心需求） =====================
     request_campaign_id     STRING COMMENT '请求参数-活动ID',
     request_date            STRING COMMENT '请求参数-数据日期(yyyy-MM-dd)',
@@ -215,8 +217,8 @@ PARTITIONED BY (
 
 
 
-drop table if exists coach_marketing_hub_dev.ods_mz_adm_list_spots_api_df;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_spots_api_df
+drop table if exists coach_marketing_hub.ods_mz_adm_list_spots_api_df;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_list_spots_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用list_spots时传入的campaign_id（请求参数）'
@@ -240,6 +242,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_spots_api_df
     ,tracking_tags       STRING COMMENT '追踪标签（嵌套数组，序列化为JSON字符串，示例：[{"impression_url":"https://xxx"},{"click_url":"https://xxx"}]）'
     ,vending_model       STRING COMMENT '售卖模式（示例：常规购买-常规投放）'
     -- 三、补充溯源字段
+    ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text  STRING COMMENT '单条广告位数据的原始JSON字符串，用于问题追溯'
     ,etl_datetime        STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
 )
@@ -251,8 +254,8 @@ PARTITIONED BY
 ;
 
 
-drop table if exists coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df
+drop table if exists coach_marketing_hub.ods_mz_adm_show_spot_api_df;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_show_spot_api_df
 (
     -- 一、接口调用参数（核心双参数）
     request_campaign_id  STRING COMMENT '调用show_spot时传入的campaign_id（请求参数）'
@@ -276,6 +279,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df
     ,keyword             STRING COMMENT '广告位字符串ID（示例：91m0C）'
     ,adposition_type     STRING COMMENT '广告位类型（示例：信息流）'
     -- 三、补充溯源字段
+    ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text  STRING COMMENT '单条广告位详情的原始JSON字符串，用于问题追溯'
     ,etl_datetime        STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
 )
@@ -286,8 +290,8 @@ PARTITIONED BY
 )
 ;
 
-drop table if exists coach_marketing_hub_dev.ods_mz_adm_list_targets_api_df;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_targets_api_df
+drop table if exists coach_marketing_hub.ods_mz_adm_list_targets_api_df;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_list_targets_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用list_targets时传入的campaign_id（请求参数）'
@@ -296,6 +300,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_targets_api_d
     ,target_id           STRING COMMENT '目标人群ID（示例：705056）'
     ,target_name         STRING COMMENT '目标人群名称（示例：F18-30）'
     -- 三、补充溯源字段
+    ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text  STRING COMMENT '单条目标数据的原始JSON字符串，用于问题追溯'
     ,etl_datetime        STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
 )
@@ -306,8 +311,8 @@ PARTITIONED BY
 )
 ;
 
-drop table if exists coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df
+drop table if exists coach_marketing_hub.ods_mz_adm_regions_list_api_df;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_regions_list_api_df
 (
     -- 接口返回核心字段
     s_level             STRING COMMENT '区域层级（数字型，如0）'
@@ -315,6 +320,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_regions_list_api_d
     ,region_id          STRING COMMENT '区域唯一ID（如000000000000000000000000）'
     ,region_name        STRING COMMENT '区域名称（如Global、Dongying）'
     -- 补充溯源字段
+    ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text STRING COMMENT '单条区域数据的原始JSON字符串'
     ,etl_datetime       STRING COMMENT '数据落地时间（yyyy-MM-dd HH:mm:ss）'
 )
@@ -326,8 +332,8 @@ PARTITIONED BY
 ;
 
 
-drop table if exists coach_marketing_hub_dev.ods_mz_tvm_spot_list_api_df;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_list_api_df
+drop table if exists coach_marketing_hub.ods_mz_tvm_spot_list_api_df;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_spot_list_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用spot/list时传入的campaign_id（请求参数）'
@@ -363,6 +369,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_list_api_df
     ,tag_place           STRING COMMENT '标签位置（如开始）'
     ,multi_tag           STRING COMMENT '多标签标识（如1）'
     -- 三、补充溯源字段
+    ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text  STRING COMMENT 'result数组内单条点位的原始JSON数据'
     ,etl_datetime        STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
 )
@@ -373,8 +380,8 @@ PARTITIONED BY
 )
 ;
 
-drop table if exists coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df
+drop table if exists coach_marketing_hub.ods_mz_tvm_spot_info_api_df;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_spot_info_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用spot/info时传入的campaign_id（请求参数）'
@@ -411,6 +418,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df
     ,tag_place           STRING COMMENT '标签位置（如开始）'
     ,multi_tag           STRING COMMENT '多标签标识（如1）'
     -- 三、补充溯源字段
+    ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text  STRING COMMENT '接口result节点原始返回数据(JSON)'
     ,etl_datetime        STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
 )
@@ -421,8 +429,8 @@ PARTITIONED BY
 )
 ;
 
-drop table if exists coach_marketing_hub_dev.ods_mz_tvm_target_info_api_df;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_target_info_api_df
+drop table if exists coach_marketing_hub.ods_mz_tvm_target_info_api_df;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_target_info_api_df
 (
     -- 一、接口调用参数（仅campaign_id）
     request_campaign_id  STRING COMMENT '调用接口时传入的campaign_id（请求参数）'
@@ -433,6 +441,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_target_info_api_df
     ,target_name         STRING COMMENT '目标人群名称（result.target数组内字段）'
     ,target_id           STRING COMMENT '目标人群ID（result.target数组内字段）'
     -- 三、补充溯源字段
+    ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text  STRING COMMENT '接口result节点原始返回数据(JSON)'
     ,etl_datetime        STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
 )
@@ -444,7 +453,7 @@ PARTITIONED BY
 ;
 
 -- OSS 表结构
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_monthly_report_oss_di
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_ad_campaign_monthly_report_oss_di
 (
     fiscal_year          STRING COMMENT '财年（如FY26）'
     ,fiscal_period       STRING COMMENT '财期（如P1）'
@@ -547,7 +556,7 @@ PARTITIONED BY
 ;
 
 -- 手工表
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.dim_fiscal_date
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.dim_fiscal_date
 (
     FSY_ID         STRING COMMENT '主键ID'
     ,FSY_CODE      STRING COMMENT '财周编码（年份+周数，如20101代表2010年第1周）'
@@ -568,7 +577,7 @@ PARTITIONED BY
 ;
 
 
-CREATE TABLE  coach_marketing_hub_dev.ods_mz_user_api_df (
+CREATE TABLE  coach_marketing_hub.ods_mz_user_api_df (
     api_source     STRING COMMENT '数据来源',
     username            STRING COMMENT '用户名',
     passwords         STRING COMMENT '密码'

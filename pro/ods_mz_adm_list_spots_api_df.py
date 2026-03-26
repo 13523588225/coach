@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 import time
 import urllib3
-from odps import ODPS, options
+from odps import ODPS, options, errors  # 新增导入errors
 
 # ===================== 基础配置（ODPS自动获取） =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -16,8 +16,8 @@ CONFIG = {
         "list_spots_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/list_spots",
         "auth": {
             "grant_type": "password",
-            "username": "Coach_api",
-            "password": "Coachapi2026",
+            "username": "",  # 后续会被动态替换
+            "password": "",  # 后续会被动态替换
             "client_id": "COACH2026_API",
             "client_secret": "e65798fb-85d6-4c56-aa19-a2435e8fef18"
         },
@@ -39,6 +39,29 @@ except Exception as e:
     raise Exception(f"ODPS项目初始化失败：{str(e)}")
 
 
+# ===================== 从MaxCompute查询API账号密码 =====================
+def get_adm_api_credentials():
+    """
+    从数仓表 ods_mz_user_api_df 查询ADM接口的账号密码
+    SQL: select username,passwords from ods_mz_user_api_df where api_source ='ADM'
+    """
+    o = ODPS(project=ODPS_PROJECT)
+    sql = """
+          select username, passwords
+          from ods_mz_user_api_df
+          where api_source = 'ADM' limit 1 \
+          """
+    try:
+        with o.execute_sql(sql).open_reader() as reader:
+            record = reader[0]
+            username = record["username"]
+            password = record["passwords"]
+            print(f"[{get_etl_datetime()}] 🔐 成功从数仓获取ADM账号：{username}")
+            return username, password
+    except errors.ODPSError as e:
+        raise Exception(f"❌ 查询账号密码失败：{str(e)}")
+
+
 # ===================== 内置工具函数 =====================
 def safe_str(val):
     if val is None or val == "" or val in ("null", "undefined"):
@@ -53,9 +76,16 @@ def get_etl_datetime():
 def get_miaozhen_token():
     print("🔍 获取秒针Token...")
     try:
+        # 从数仓动态获取账号密码
+        username, password = get_adm_api_credentials()
+        # 构造动态auth参数（替换硬编码值）
+        auth_data = CONFIG["api"]["auth"].copy()
+        auth_data["username"] = username
+        auth_data["password"] = password
+
         resp = requests.post(
             CONFIG["api"]["token_url"],
-            data=CONFIG["api"]["auth"],
+            data=auth_data,  # 使用动态获取的账号密码
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             timeout=CONFIG["api"]["timeout"],
             verify=False
@@ -153,6 +183,9 @@ def collect_spot_data(token, campaign_id):
     """适配纯数组格式的广告位数据，正确解析（pre_parse_raw_text仅保留对应字段）"""
     try:
         params = {"access_token": token, "campaign_id": campaign_id}
+        # 构建完整请求URL（含参数）
+        full_request_url = requests.Request('GET', CONFIG["api"]["list_spots_url"], params=params).prepare().url
+
         resp = requests.get(
             CONFIG["api"]["list_spots_url"],
             params=params,
@@ -186,6 +219,9 @@ def collect_spot_data(token, campaign_id):
                 print(f"  ⚠️ 活动{campaign_id}第{idx + 1}条广告位数据spot_id为空，跳过")
                 continue
 
+            # 新增：添加完整请求URL字段
+            spot["full_request_url"] = full_request_url
+
             # 核心修改：pre_parse_raw_text仅保留当前广告位的核心字段原始数据
             spot_core_data = {k: spot.get(k) for k in core_fields if k in spot}
             spot["pre_parse_raw_text"] = json.dumps(spot_core_data, ensure_ascii=False)
@@ -205,12 +241,12 @@ def assemble_spot_data(all_spots):
     """组装广告位数据（适配ODPS写入格式）"""
     etl_datetime = get_etl_datetime()
     data = []
-    # 字段映射（需与MaxCompute表结构完全一致）
+    # 字段映射（需与MaxCompute表结构完全一致）- 新增full_request_url字段
     field_mapping = [
         "campaign_id", "CAGUID", "GUID", "adposition_type", "area_size",
         "channel_name", "customize", "description", "landing_page", "market",
         "placement_name", "publisher_id", "publisher_name", "report_metrics",
-        "spot_id", "spot_id_str", "vending_model"
+        "spot_id", "spot_id_str", "vending_model", "full_request_url"  # 新增full_request_url
     ]
 
     for spot in all_spots:
@@ -218,7 +254,7 @@ def assemble_spot_data(all_spots):
         # 处理数组字段（转为JSON字符串）
         row.append(json.dumps(spot.get("spot_plan", []), ensure_ascii=False))
         row.append(json.dumps(spot.get("tracking_tags", []), ensure_ascii=False))
-        # 写入仅保留核心字段的原始数据
+        # 写入仅保留核心字段的原始数据（pre_parse_raw_text）
         row.append(safe_str(spot.get("pre_parse_raw_text")))
         row.append(etl_datetime)
         data.append(row)

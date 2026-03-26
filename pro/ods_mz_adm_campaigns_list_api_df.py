@@ -25,7 +25,7 @@ CONFIG = {
         "interval": 0.1  # 接口间隔（避免限流）
     },
     "table_name": "ods_mz_adm_campaigns_list_api_df",
-    "batch_size": 1000
+    "batch_size": 20000
 }
 # 全局ODPS项目变量（适配通用写入函数）
 ODPS_PROJECT = ODPS().project
@@ -87,9 +87,9 @@ def get_access_token():
         raise Exception(f"Token获取失败：{str(e)} | 响应：{resp.text[:500]}")
 
 
-# ====================== 步骤2：采集活动数据（仅删除请求参数，保留返回字段） ======================
+# ====================== 步骤2：采集活动数据（新增完整请求URL采集） ======================
 def collect_campaign_data(access_token):
-    """GET请求采集活动数据（不传递start_date/end_date请求参数，保留返回字段）"""
+    """GET请求采集活动数据（新增full_request_url字段采集）"""
     # 核心修改：仅传递access_token，删除所有日期相关请求参数
     request_params = {
         "access_token": access_token
@@ -105,12 +105,15 @@ def collect_campaign_data(access_token):
         )
         resp.raise_for_status()
         raw_data = resp.json()
+        # 新增：获取完整的请求URL（包含参数拼接后的最终URL）
+        full_request_url = resp.url  # requests会自动拼接参数，返回最终请求的完整URL
 
-        # 过滤有效数据（保留接口返回的所有字段，包括start_date/end_date）
+        # 过滤有效数据（新增full_request_url字段）
         valid_data = []
         for idx, item in enumerate(raw_data):
             if isinstance(item, dict) and item.get("campaign_id"):
-                # 仅补充溯源字段，不修改接口返回的原始字段
+                # 补充溯源字段：先加full_request_url，再加原有字段
+                item["full_request_url"] = full_request_url  # 新增字段赋值
                 item["pre_parse_raw_text"] = resp.text[:2000]
                 item["etl_datetime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 valid_data.append(item)  # 保留活动自身的start_date/end_date
@@ -123,10 +126,10 @@ def collect_campaign_data(access_token):
         raise Exception(f"数据采集失败：{str(e)} | 响应：{resp.text[:500]}")
 
 
-# ====================== 步骤3：组装写入数据（保留start_date/end_date返回字段） ======================
+# ====================== 步骤3：组装写入数据（新增full_request_url字段） ======================
 def assemble_odps_data(campaigns):
-    """按表结构组装数据（保留接口返回的start_date/end_date字段）"""
-    # 核心：保留start_date/end_date字段，对应接口返回的活动自身日期
+    """按表结构组装数据（在pre_parse_raw_text前新增full_request_url字段）"""
+    # 核心修改：在pre_parse_raw_text前插入full_request_url字段
     field_order = [
         "campaign_id",  # 1. 活动ID
         "start_date",  # 2. 活动自身的开始日期（接口返回）
@@ -143,13 +146,14 @@ def assemble_odps_data(campaigns):
         "linked_panels",  # 13. 关联面板
         "linked_siteids",  # 14. 关联站点ID
         "slot_type",  # 15. 广告位类型
-        "pre_parse_raw_text",  # 16. 源解析文本
-        "etl_datetime"  # 17. 数据落地时间
+        "full_request_url",  # 16. 新增：完整接口请求URL
+        "pre_parse_raw_text",  # 17. 源解析文本（原16位，后移一位）
+        "etl_datetime"  # 18. 数据落地时间（原17位，后移一位）
     ]
 
     odps_rows = []
     for camp in campaigns:
-        # 提取接口返回的start_date/end_date字段，写入MaxCompute
+        # 提取字段（包含新增的full_request_url）
         row = [safe_str(camp.get(field, "")) for field in field_order]
         odps_rows.append(row)
 
@@ -165,17 +169,17 @@ def main():
         # 1. 获取Token
         access_token = get_access_token()
 
-        # 2. 采集数据（无日期请求参数，保留返回字段）
+        # 2. 采集数据（新增full_request_url采集）
         campaign_data = collect_campaign_data(access_token)
 
-        # 3. 组装数据（保留start_date/end_date字段）
+        # 3. 组装数据（新增full_request_url字段）
         odps_rows = assemble_odps_data(campaign_data)
 
         # 4. 调用通用写入函数写入ODPS
         write_to_odps(
             table_name=CONFIG["table_name"],
             data=odps_rows,
-            dt=args['dt']
+            dt=args['dt']  # 保留原有写法不变
         )
 
         print("\n" + "=" * 80)
