@@ -24,11 +24,10 @@ API_CONFIG = {
     "request_interval": 0.003
 }
 
-# 2. ODPS配置
-ODPS_PROJECT = ODPS().project
+# 2. ODPS 配置（DataWorks原生授权，无需AK）
 TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
 
-# 3. 单分区日期
+# 3. 调度日期参数
 DT = args['dt']
 
 # 4. 接口维度参数
@@ -49,9 +48,11 @@ PARALLEL_CONFIG = {
 # 6. 小时字段
 HOUR_FIELDS = [f"h{i:02d}" for i in range(24)]
 
-# ===================== 全局性能优化 =====================
+# ===================== 全局初始化 =====================
 SESSION = requests.Session()
 gc.disable()
+# 【修复】DataWorks原生ODPS单例初始化，彻底解决project获取失败
+ODPS_INSTANCE = ODPS()
 
 
 # ===================== 工具函数 =====================
@@ -193,16 +194,16 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                         resp.raise_for_status()
                         raw_data = resp.json()
 
-                        # 异常处理
+                        # 异常处理：打印完整URL
                         if raw_data.get("error_code") != 0:
-                            print(f"⚠️  接口返回错误 | campaign={camp_id} | 信息：{raw_data.get('error_message')}")
+                            print(f"⚠️  接口返回错误 | campaign={camp_id} | URL={full_request_url} | 信息：{raw_data.get('error_message')}")
                             time.sleep(API_CONFIG["request_interval"])
                             continue
 
                         result = raw_data.get("result", {})
                         items = result.get("items", [])
                         if not items:
-                            print(f"⚠️  接口无有效数据 | campaign={camp_id}")
+                            print(f"⚠️  接口无有效数据 | campaign={camp_id} | URL={full_request_url}")
                             time.sleep(API_CONFIG["request_interval"])
                             continue
 
@@ -218,7 +219,7 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                                 json.dumps({"attributes": attributes, "metrics": metrics}, ensure_ascii=False)
                             )
 
-                            # ===================== 严格对齐你的表结构字段顺序 =====================
+                            # 严格对齐表结构字段顺序
                             write_row = [
                                 # 1. 请求参数（request_前缀）
                                 to_string(request_params["campaign_id"]),
@@ -234,9 +235,9 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                                 to_string(camp_start),
                                 to_string(camp_end),
                                 to_string(result.get("date")),
-                                to_bigint(result.get("version")),  # 对应表s_version
+                                to_bigint(result.get("version")),
 
-                                # 3. attributes全字段（安全取值，兼容接口缺失）
+                                # 3. attributes 安全取值（无则为空）
                                 to_string(attributes.get("publisher_id")),
                                 to_string(attributes.get("spot_id")),
                                 to_string(attributes.get("spot_id_str")),
@@ -247,7 +248,7 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                                 to_string(attributes.get("target_name")),
                                 to_string(attributes.get("target_id")),
 
-                                # 4. 核心指标字段
+                                # 4. 核心指标
                                 to_bigint(metrics.get("imp_acc")),
                                 to_bigint(metrics.get("clk_acc")),
                                 to_bigint(metrics.get("uim_acc")),
@@ -261,13 +262,11 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                                 to_bigint(metrics.get("uim_avg_day")),
                                 to_bigint(metrics.get("ucl_avg_day")),
 
-                                # 5. 24小时曝光分时指标
+                                # 5. 24小时分时指标
                                 *[to_bigint(metrics.get(f"imp_{hour}")) for hour in HOUR_FIELDS],
-
-                                # 6. 24小时点击分时指标
                                 *[to_bigint(metrics.get(f"clk_{hour}")) for hour in HOUR_FIELDS],
 
-                                # 7. 新增字段（严格顺序）
+                                # 6. 新增字段
                                 to_string(full_request_url),
                                 pre_parse_raw_text,
                                 etl_datetime
@@ -277,7 +276,8 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                         time.sleep(API_CONFIG["request_interval"])
 
                     except Exception as e:
-                        print(f"❌ 接口请求失败 | campaign={camp_id}")
+                        # 请求异常打印完整URL
+                        print(f"❌ 接口请求失败 | campaign={camp_id} | URL={full_request_url}")
                         print(f"❌ 错误信息：{str(e)}")
                         traceback.print_exc()
                         time.sleep(API_CONFIG["request_interval"])
@@ -292,7 +292,8 @@ def write_to_odps_partition(table_name: str, data: List[List]):
         print(f"⚠️ 分区{DT}无数据可写入，跳过")
         return
 
-    o = ODPS(project=ODPS_PROJECT)
+    # 使用全局单例ODPS实例，彻底解决project获取失败
+    o = ODPS_INSTANCE
     if not o.exist_table(table_name):
         raise Exception(f"ODPS表不存在：{table_name}")
 
@@ -338,6 +339,7 @@ def main():
     try:
         task_start_time = time.time()
         print(f"===== 任务开始：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =====")
+        print(f"项目名称：{ODPS_INSTANCE.project}")
         print(f"目标分区：{DT} | 表：{TARGET_TABLE}")
 
         # 1. 获取Token
