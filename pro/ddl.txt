@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di
     imp_acc_h23           STRING COMMENT '23时累计曝光',
     clk_acc_h00           STRING COMMENT '0时累计点击',
     clk_acc_h23           STRING COMMENT '23时累计点击',
-    request_params        STRING COMMENT '完整API请求参数JSON',  -- 新增
+    full_request_url      STRING COMMENT '完整接口请求URL',
     pre_parse_raw_text    STRING COMMENT '原始返回报文',
     etl_datetime          STRING COMMENT '采集时间'
 )

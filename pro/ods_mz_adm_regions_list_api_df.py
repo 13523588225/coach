@@ -31,7 +31,7 @@ API_CONFIG = {
 }
 
 # 2. ODPS全局配置（需替换为实际项目名）
-ODPS_PROJECT = 'coach_marketing_hub_dev'
+ODPS_PROJECT = ODPS().project
 TARGET_TABLE_NAME = "ods_mz_adm_regions_list_api_df"  # 目标表名
 
 

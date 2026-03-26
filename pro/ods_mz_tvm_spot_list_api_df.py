@@ -32,7 +32,7 @@ API_CONFIG = {
 }
 
 # 2. ODPS配置（DataWorks自动鉴权）
-ODPS_PROJECT = 'coach_marketing_hub_dev'
+ODPS_PROJECT = ODPS().project
 TABLE_NAMES = {
     "spot_list": "ods_mz_tvm_spot_list_api_df"  # 广告点位列表目标表
 }

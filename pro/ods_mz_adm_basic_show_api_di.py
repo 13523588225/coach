@@ -5,6 +5,7 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, wait
 from typing import List
 import requests
+from requests import Request
 import urllib3
 from urllib3.exceptions import InsecureRequestWarning
 from odps import ODPS
@@ -14,29 +15,32 @@ from odps import errors
 urllib3.disable_warnings(InsecureRequestWarning)
 
 # ===================== 核心配置 =====================
-ODPS_PROJECT = "coach_marketing_hub_dev"
+ODPS_PROJECT = ODPS().project
 DT = args['dt']
 PARALLEL_CONFIG = {
     "batch_size": 20000
 }
 
+# ===================== 报表参数配置 =====================
+REPORT_PARAMS = {
+    "metrics": "all",
+    "by_region": ["level0", "level1", "level2"],
+    "by_audience": ["overall", "stable", "target"],
+    "platform": ["pc", "pm", "mb"],
+    "by_position": ["campaign", "publisher", "spot"]
+}
+
 # ===================== 业务配置 =====================
 CONFIG = {
     "odps_table": "ods_mz_adm_basic_show_api_di",
-    "report_params": {
-        "by_region_list": ["level0", "level1", "level2"],
-        "by_audience_list": ["overall", "stable", "target"],
-        "platform_list": ["pc", "pm", "mb"],
-        "by_position_list": ["campaign", "publisher", "spot"]
-    },
     "api": {
         "token_url": "https://api.cn.miaozhen.com/oauth/token",
         "campaign_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/list",
         "report_url": "https://api.cn.miaozhen.com/admonitor/v1/reports/basic/show",
         "auth": {
             "grant_type": "password",
-            "username": "Coach_api",
-            "password": "Coachapi2026",
+            "username": "",
+            "password": "",
             "client_id": "COACH2026_API",
             "client_secret": "e65798fb-85d6-4c56-aa19-a2435e8fef18"
         },
@@ -74,13 +78,34 @@ def is_in_range(start, end, check):
     except:
         return False
 
-# ===================== MaxCompute 写入 =====================
+# ===================== 从MaxCompute查询API账号密码 =====================
+def get_adm_api_credentials():
+    """
+    从数仓表 ods_mz_user_api_df 查询ADM接口的账号密码
+    SQL: select username,passwords from ods_mz_user_api_df where api_source ='ADM'
+    """
+    o = ODPS(project=ODPS_PROJECT)
+    sql = """
+    select username, passwords 
+    from ods_mz_user_api_df 
+    where api_source = 'ADM'
+    limit 1
+    """
+    try:
+        with o.execute_sql(sql).open_reader() as reader:
+            if not reader.count:
+                raise Exception("❌ 未查询到 api_source='ADM' 的账号密码信息")
+            record = reader[0]
+            username = record["username"]
+            password = record["passwords"]
+            print(f"[{get_log()}] 🔐 成功从数仓获取ADM账号：{username}")
+            return username, password
+    except errors.ODPSError as e:
+        raise Exception(f"❌ 查询账号密码失败：{str(e)}")
 
+# ===================== MaxCompute 写入 =====================
 def write_to_odps_partition(table_name: str, data: List[List]):
-    """
-    批量写入MaxCompute分区表
-    自动删除旧分区 + 分批次提交
-    """
+    """批量写入MaxCompute分区表"""
     if not data:
         print(f"⚠️ 分区{DT}无数据可写入，跳过")
         return
@@ -91,20 +116,17 @@ def write_to_odps_partition(table_name: str, data: List[List]):
 
     table = o.get_table(table_name)
     partition_spec = f"dt={DT}"
-
     batch_size = PARALLEL_CONFIG["batch_size"]
     total_count = len(data)
     batch_num = (total_count + batch_size - 1) // batch_size
 
     try:
         if table.exist_partition(partition_spec):
-            drop_sql = f"ALTER TABLE {table_name} DROP PARTITION ({partition_spec})"
-            o.execute_sql(drop_sql)
+            o.execute_sql(f"ALTER TABLE {table_name} DROP PARTITION ({partition_spec})")
             print(f"✅ 已清空旧分区：{DT}")
 
         print(f"📊 总数据量 {total_count} 条，分 {batch_num} 批次写入")
         total_cost = 0
-
         for i in range(batch_num):
             t0 = time.time()
             batch = data[i*batch_size : (i+1)*batch_size]
@@ -113,14 +135,12 @@ def write_to_odps_partition(table_name: str, data: List[List]):
             cost = round(time.time() - t0, 2)
             total_cost += cost
             print(f"💾 批次 {i+1}/{batch_num} 完成 | 条数={len(batch)} | 耗时={cost}s")
-
         print(f"✅ 分区 {DT} 全部写入完成，总耗时 {round(total_cost,2)}s")
 
     except errors.ODPSError as e:
         raise Exception(f"写入失败：{str(e)}")
 
 # ===================== API 获取Token =====================
-
 def get_token():
     """获取秒针API访问凭证"""
     t0 = time.time()
@@ -131,9 +151,8 @@ def get_token():
     return token
 
 # ===================== 获取活动列表 =====================
-
 def get_campaigns(token):
-    """获取活动基础信息（ID、起止日期）"""
+    """获取活动基础信息"""
     resp = requests.get(f"{CONFIG['api']['campaign_url']}?access_token={token}", timeout=60, verify=False)
     resp.raise_for_status()
     campaigns = []
@@ -147,21 +166,23 @@ def get_campaigns(token):
     return campaigns
 
 # ===================== 拉取报表数据 =====================
-
 def fetch_task(task, token, dt):
     """多线程执行：拉取单维度报表数据"""
     global total_collected
     camp, reg, aud, plt, pos = task
     cid = camp["campaign_id"]
+    full_url = ""  # 完整请求URL
+    start_time = time.time()  # 请求开始计时
 
     if not is_in_range(camp["start_date"], camp["end_date"], dt):
         return
 
+    # 构建请求参数
     params = {
         "access_token": token,
         "campaign_id": cid,
         "date": dt,
-        "metrics": "all",
+        "metrics": REPORT_PARAMS["metrics"],
         "by_region": reg,
         "by_audience": aud,
         "platform": plt,
@@ -169,6 +190,12 @@ def fetch_task(task, token, dt):
     }
 
     try:
+        # 拼接完整请求URL
+        req = Request('GET', CONFIG["api"]["report_url"], params=params)
+        prepared = req.prepare()
+        full_url = prepared.url
+
+        # 发送请求
         resp = requests.get(CONFIG["api"]["report_url"], params=params, timeout=60, verify=False)
         resp.raise_for_status()
         data = resp.json()
@@ -180,7 +207,10 @@ def fetch_task(task, token, dt):
             if not metric:
                 continue
 
-            # ===================== 字段 100% 匹配你的表结构 =====================
+            # 原始解析文档
+            pre_parse_raw_text = json.dumps(item, ensure_ascii=False)
+
+            # ===================== 已删除 request_params 字段 =====================
             row = [
                 safe_str(cid),                                # campaign_id
                 safe_str(camp["start_date"]),                 # campaign_start_date
@@ -188,7 +218,7 @@ def fetch_task(task, token, dt):
                 safe_str(data.get("date")),                   # report_day_date
                 safe_str(pos),                                # by_position
                 safe_str(reg),                                # by_region
-                "all",                                        # metrics
+                REPORT_PARAMS["metrics"],                    # metrics
                 safe_str(aud),                                # by_audience
                 safe_str(plt),                                # platform
                 safe_str(data.get("version")),                # s_version
@@ -217,24 +247,30 @@ def fetch_task(task, token, dt):
                 safe_str(metric.get("imp_h23")),              # imp_acc_h23
                 safe_str(metric.get("clk_h00")),              # clk_acc_h00
                 safe_str(metric.get("clk_h23")),              # clk_acc_h23
-                json.dumps(params, ensure_ascii=False),       # request_params
-                "",                                           # pre_parse_raw_text（置空）
+                safe_str(full_url),                           # full_request_url（完整请求URL）
+                pre_parse_raw_text,                           # pre_parse_raw_text（原始解析文档）
                 get_log()                                     # etl_datetime
             ]
 
             all_data.append(row)
             total_collected += 1
 
-        print(f"[{get_log()}] 📥 活动 {cid} 完成 | 累计 {total_collected} 条")
-
     except Exception as e:
-        print(f"[{get_log()}] ❌ 活动 {cid} 失败：{str(e)[:100]}")
+        print(f"[{get_log()}] ❌ 活动 {cid} 请求失败：{str(e)[:100]}")
+    finally:
+        # 无论成功/失败，打印完整URL + 耗时
+        elapsed_time = round(time.time() - start_time, 2)
+        print(f"[{get_log()}] 🔗 活动 {cid} | 耗时={elapsed_time}s | 完整URL: {full_url}")
 
 # ===================== 主流程 =====================
-
 def main():
     run_date = format_date(DT)
     print(f"[{get_log()}] 🚀 开始采集 | 分区 dt={DT}")
+
+    # 动态获取账号密码
+    username, password = get_adm_api_credentials()
+    CONFIG["api"]["auth"]["username"] = username
+    CONFIG["api"]["auth"]["password"] = password
 
     token = get_token()
     campaigns = get_campaigns(token)
@@ -245,10 +281,10 @@ def main():
     # 构建任务
     tasks = []
     for c in campaigns:
-        for r in CONFIG["report_params"]["by_region_list"]:
-            for a in CONFIG["report_params"]["by_audience_list"]:
-                for p in CONFIG["report_params"]["platform_list"]:
-                    for pos in CONFIG["report_params"]["by_position_list"]:
+        for r in REPORT_PARAMS["by_region"]:
+            for a in REPORT_PARAMS["by_audience"]:
+                for p in REPORT_PARAMS["platform"]:
+                    for pos in REPORT_PARAMS["by_position"]:
                         tasks.append((c, r, a, p, pos))
 
     # 多线程采集
