@@ -3,6 +3,8 @@
 功能：采集数据并分批写入ODPS（仅首次清空分区，最终存储全量数据）
 新增：1. 任务执行时间统计 2. campaign_show_spot_url接口并行访问（并行度=10）
 数据来源：/cms/v1/campaigns/show_spot 接口
+适配表结构：ods_mz_adm_show_spot_api_df（含keyword字段）
+依赖：odps库（pip install odps）
 """
 import requests
 import json
@@ -12,7 +14,7 @@ import threading  # 提前导入线程模块，避免worker函数中引用报错
 from urllib.parse import urlencode  # 新增：用于拼接完整请求URL
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
-from odps import ODPS
+from odps import ODPS, errors  # 新增：导入odps errors模块
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ===================== 全局配置 & 初始化 =====================
@@ -47,7 +49,7 @@ CONFIG = {
             "spot_id_str",
             "keyword",  # 关键词列表（JSON格式）
             "adposition_type",
-            "full_request_url",      # 新增：完整接口请求URL（严格放在pre_parse_raw_text前）
+            "full_request_url",      # STRING COMMENT '完整接口请求URL'
             "pre_parse_raw_text",
             "etl_datetime"
         ]
@@ -57,8 +59,8 @@ CONFIG = {
         "token_url": "https://api.cn.miaozhen.com/oauth/token",
         "auth": {
             "grant_type": "password",
-            "username": "",
-            "password": "",
+            "username": "",  # 动态从数仓获取
+            "password": "",  # 动态从数仓获取
             "client_id": "COACH2026_API",
             "client_secret": "e65798fb-85d6-4c56-aa19-a2435e8fef18"
         },
@@ -69,12 +71,34 @@ CONFIG = {
         "interval": 0.02,
         "parallelism": 10  # campaign_show_spot_url接口并行度
     },
-    "batch_size": 20000  # 批量写入大小（20000条/批）
+    "batch_size": 1000  # 批量写入大小（1000条/批）
 }
 
 # 全局标记：是否已清空分区（确保仅清空一次）
 PARTITION_CLEARED = False
 
+# ===================== 从MaxCompute查询API账号密码 =====================
+def get_adm_api_credentials():
+    """
+    从数仓表 ods_mz_user_api_df 查询ADM接口的账号密码
+    SQL: select username,passwords from ods_mz_user_api_df where api_source ='ADM'
+    """
+    o = ODPS(project=ODPS_PROJECT)
+    sql = """
+    select username, passwords 
+    from ods_mz_user_api_df 
+    where api_source = 'ADM'
+    limit 1
+    """
+    try:
+        with o.execute_sql(sql).open_reader() as reader:
+            record = reader[0]
+            username = record["username"]
+            password = record["passwords"]
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🔐 成功从数仓获取ADM账号：{username}")
+            return username, password
+    except errors.ODPSError as e:
+        raise Exception(f"❌ 查询账号密码失败：{str(e)}")
 
 # ====================== 通用ODPS写入函数（核心优化：仅首次清空分区） ======================
 def write_to_odps(table_name: str, data: List[List], dt: str):
@@ -109,7 +133,6 @@ def write_to_odps(table_name: str, data: List[List], dt: str):
     except Exception as e:
         raise Exception(f"❌ 数据写入失败：{str(e)}")
 
-
 # ===================== 核心工具函数 =====================
 def get_etl_datetime() -> str:
     """获取当前时间戳（yyyy-MM-dd HH:mm:ss）"""
@@ -129,10 +152,14 @@ def to_string(value) -> str:
             return ""
     return str(value)
 
-
 # ===================== Access Token获取 =====================
 def get_access_token() -> str:
     """获取OAuth Access Token（异常捕获+校验）"""
+    # 从数仓获取账号密码并更新配置
+    username, password = get_adm_api_credentials()
+    CONFIG["api"]["auth"]["username"] = username
+    CONFIG["api"]["auth"]["password"] = password
+
     try:
         resp = requests.post(
             CONFIG["api"]["token_url"],
@@ -152,7 +179,6 @@ def get_access_token() -> str:
         return to_string(access_token)
     except Exception as e:
         raise Exception(f"❌ 获取Access Token失败：{str(e)}")
-
 
 # ===================== 获取所有campaign_id =====================
 def get_campaign_ids(token: str) -> List[str]:
@@ -188,7 +214,6 @@ def get_campaign_ids(token: str) -> List[str]:
     except Exception as e:
         raise Exception(f"❌ 获取campaign_id失败：{str(e)}")
 
-
 # ===================== 获取单个campaign的spot_id_str列表 =====================
 def get_spot_id_str_list(token: str, campaign_id: str) -> List[str]:
     """从/cms/v1/campaigns/list_spots接口获取单个campaign的spot_id_str列表"""
@@ -222,7 +247,6 @@ def get_spot_id_str_list(token: str, campaign_id: str) -> List[str]:
     except Exception as e:
         print(f"⚠️ campaign_id={campaign_id} 获取spot_id_str失败，跳过：{str(e)}")
         return []
-
 
 # ===================== 采集单个广告位详情（适配keyword字段） =====================
 def get_spot_detail_worker(token: str, campaign_id: str, spot_id_str: str) -> Optional[Dict]:
@@ -284,7 +308,6 @@ def get_spot_detail_worker(token: str, campaign_id: str, spot_id_str: str) -> Op
         print(f"⚠️ campaign_id={campaign_id}, spot_id_str={spot_id_str} 采集失败，跳过：{str(e)}")
         return None
 
-
 # ===================== 批量并行采集广告位详情 =====================
 def batch_get_spot_detail(token: str, campaign_id: str, spot_id_str_list: List[str]) -> List[Dict]:
     """
@@ -314,7 +337,6 @@ def batch_get_spot_detail(token: str, campaign_id: str, spot_id_str_list: List[s
 
     return spot_detail_list
 
-
 # ===================== 数据转换（适配ODPS写入格式） =====================
 def convert_data_to_list(data_list: List[Dict]) -> List[List]:
     """
@@ -328,7 +350,6 @@ def convert_data_to_list(data_list: List[Dict]) -> List[List]:
             row.append(data.get(col, ""))
         write_data.append(row)
     return write_data
-
 
 # ===================== 主流程（分批采集+分批写入+时间统计+并行采集） =====================
 def main():
@@ -423,7 +444,6 @@ def main():
         print(f"❌ 失败原因：{str(e)}")
         print("=" * 100)
         raise  # 抛出异常，便于排查问题
-
 
 if __name__ == "__main__":
     main()
