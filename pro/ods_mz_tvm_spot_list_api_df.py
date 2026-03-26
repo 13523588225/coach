@@ -1,3 +1,8 @@
+'''PyODPS 3
+请确保不要使用从 MaxCompute下载数据来处理。下载数据操作常包括Table/Instance的open_reader以及 DataFrame的to_pandas方法。
+推荐使用 MaxFrame DataFrame（从 MaxCompute 表创建）来处理数据，MaxFrame DataFrame数据计算发生在MaxCompute集群，无需拉数据至本地。
+MaxFrame相关介绍及使用可参考：https://help.aliyun.com/zh/maxcompute/user-guide/maxframe
+'''
 # -*- coding: utf-8 -*-
 """
 秒针TV监测广告点位列表采集脚本
@@ -27,7 +32,7 @@ API_CONFIG = {
 }
 
 # 2. ODPS配置（DataWorks自动鉴权）
-ODPS_PROJECT = ODPS().project
+ODPS_PROJECT = 'coach_marketing_hub_dev'
 TABLE_NAMES = {
     "spot_list": "ods_mz_tvm_spot_list_api_df"  # 广告点位列表目标表
 }
@@ -265,7 +270,7 @@ def main():
         ]
 
         # 5. 写入ODPS（分区日期可替换为动态参数）
-        write_to_odps(TABLE_NAMES["spot_list"], spot_list_write_data, '20260318')
+        write_to_odps(TABLE_NAMES["spot_list"], spot_list_write_data, args['dt'])
 
     except Exception as e:
         print(f"❌ 任务失败：{str(e)}")
