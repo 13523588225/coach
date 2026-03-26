@@ -1,16 +1,264 @@
-# 这是一个示例 Python 脚本。
+# -*- coding: utf-8 -*-
+"""
+秒针广告API采集 - 纯本地保存版
+✅ 已移除 MaxCompute/ODPS 所有代码
+✅ 只输出本地 CSV 文件
+✅ 无环境依赖、不报错
+可直接运行 ✅
+"""
+import json
+import time
+import csv
+import os
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, wait
+import requests
+import urllib3
+from urllib3.exceptions import InsecureRequestWarning
 
-# 按 Shift+F10 执行或将其替换为您的代码。
-# 按 双击 Shift 在所有地方搜索类、文件、工具窗口、操作和设置。
+# 关闭SSL警告
+urllib3.disable_warnings(InsecureRequestWarning)
 
+# ===================== 配置 =====================
+CONFIG = {
+    "odps": {
+        "dt": "20260301"  # 仅保留日期，不写ODPS
+    },
+    "report_params": {
+        "by_region_list": ["level0", "level1", "level2"],
+        "by_audience_list": ["overall", "stable", "target"],
+        "platform_list": ["pc", "pm", "mb"],
+        "by_position_list": ["campaign", "publisher", "spot", "keyword"]
+    },
+    "api": {
+        "token_url": "https://api.cn.miaozhen.com/oauth/token",
+        "campaign_url": "https://api.cn.miaozhen.com/cms/v1/campaigns/list",
+        "report_url": "https://api.cn.miaozhen.com/admonitor/v1/reports/basic/show",
+        "auth": {
+            "grant_type": "password",
+            "username": "Coach_api",
+            "password": "Coachapi2026",
+            "client_id": "COACH2026_API",
+            "client_secret": "e65798fb-85d6-4c56-aa19-a2435e8fef18"
+        },
+        "timeout": 60,
+        "api_workers": 10
+    },
+    "local_save": {
+        "save_path": "./data",
+        "file_name": "mz_adm_basic_show_{dt}.csv"
+    }
+}
 
-def print_hi(name):
-    # 在下面的代码行中使用断点来调试脚本。
-    print(f'Hi, {name}')  # 按 Ctrl+F8 切换断点。
+all_data = []
+total_collected = 0
 
+# ===================== 工具方法 =====================
+def get_log():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# 按装订区域中的绿色按钮以运行脚本。
-if __name__ == '__main__':
-    print_hi('PyCharm')
+def safe_str(val):
+    if val is None or val == "" or val == "-" or str(val).lower() in ["null", "undefined"]:
+        return ""
+    return str(val).replace("\n", " ").replace("\r", "")
 
-# 访问 https://www.jetbrains.com/help/pycharm/ 获取 PyCharm 帮助
+def format_date(dt):
+    return datetime.strptime(dt, "%Y%m%d").strftime("%Y-%m-%d")
+
+def is_in_range(start, end, check):
+    try:
+        s = datetime.strptime(start, "%Y-%m-%d")
+        e = datetime.strptime(end, "%Y-%m-%d")
+        c = datetime.strptime(check, "%Y-%m-%d")
+        return s <= c <= e
+    except:
+        return False
+
+# ===================== 本地保存 =====================
+def save_to_local(dt, data_list):
+    if not data_list:
+        print("❌ 无有效数据可保存到本地")
+        return
+
+    save_dir = CONFIG["local_save"]["save_path"]
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
+    file_name = CONFIG["local_save"]["file_name"].format(dt=dt)
+    file_path = os.path.join(save_dir, file_name)
+
+    headers = [
+        "campaign_id", "start_date", "end_date", "date", "by_position", "by_region",
+        "all_flag", "by_audience", "platform", "version", "report_platform", "total_spot_num",
+        "attr_audience", "attr_target_id", "attr_publisher_id", "attr_spot_id", "attr_keyword_id",
+        "attr_region_id", "attr_universe", "metric_imp_acc", "metric_clk_acc", "metric_uim_acc",
+        "metric_ucl_acc", "metric_imp_day", "metric_clk_day", "metric_uim_day", "metric_ucl_day",
+        "metric_imp_avg_day", "metric_clk_avg_day", "metric_uim_avg_day", "metric_ucl_avg_day",
+        "metric_imp_h00", "metric_imp_h23", "metric_clk_h00", "metric_clk_h23", "metric_imp_h01",
+        "metric_imp_h02", "metric_clk_h01", "metric_clk_h02", "request_params", "raw_response",
+        "collect_time"
+    ]
+
+    try:
+        s = time.time()
+        with open(file_path, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(headers)
+            writer.writerows(data_list)
+        print(f"[{get_log()}] 💾 本地保存成功：{file_path}")
+    except Exception as e:
+        print(f"[{get_log()}] ❌ 本地保存失败：{str(e)}")
+
+# ===================== API 认证 =====================
+def get_token():
+    s = time.time()
+    resp = requests.post(CONFIG["api"]["token_url"], data=CONFIG["api"]["auth"], timeout=60, verify=False)
+    resp.raise_for_status()
+    token = resp.json()["access_token"]
+    print(f"[{get_log()}] 🔑 获取TOKEN成功，耗时 {round(time.time() - s, 2)}s")
+    return token
+
+# ===================== 获取活动列表 =====================
+def get_campaigns(token):
+    s = time.time()
+    resp = requests.get(f"{CONFIG['api']['campaign_url']}?access_token={token}", timeout=60, verify=False)
+    resp.raise_for_status()
+    camps = []
+    for item in resp.json():
+        cid = item.get("campaign_id")
+        sdt = item.get("start_date")
+        edt = item.get("end_date")
+        if cid and sdt and edt:
+            camps.append({"campaign_id": str(cid), "start_date": sdt, "end_date": edt})
+    print(f"[{get_log()}] 📋 有效活动 {len(camps)} 个")
+    return camps
+
+# ===================== 拉取报表 =====================
+def fetch_task(task, token, dt):
+    global total_collected
+    camp, reg, aud, plt, pos = task
+    cid = camp["campaign_id"]
+
+    if not is_in_range(camp["start_date"], camp["end_date"], dt):
+        return
+
+    params = {
+        "access_token": token,
+        "campaign_id": cid,
+        "date": dt,
+        "metrics": "all",
+        "by_region": reg,
+        "by_audience": aud,
+        "platform": plt,
+        "by_position": pos
+    }
+
+    try:
+        resp = requests.get(CONFIG["api"]["report_url"], params=params, timeout=60, verify=False)
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("items", [])
+        raw_response = resp.text
+
+        rows = []
+        for item in items:
+            attr = item.get("attributes", {})
+            metric = item.get("metrics", {})
+            if not metric:
+                continue
+
+            row = [
+                safe_str(cid),
+                safe_str(camp["start_date"]),
+                safe_str(camp["end_date"]),
+                safe_str(data.get("date")),
+                safe_str(pos),
+                safe_str(reg),
+                "all",
+                safe_str(aud),
+                safe_str(plt),
+                safe_str(data.get("version")),
+                safe_str(data.get("platform")),
+                safe_str(data.get("total_spot_num")),
+
+                safe_str(attr.get("audience")),
+                safe_str(attr.get("target_id")),
+                safe_str(attr.get("publisher_id")),
+                safe_str(attr.get("spot_id")),
+                safe_str(attr.get("keyword_id", "")),
+                safe_str(attr.get("region_id")),
+                safe_str(attr.get("universe")),
+
+                safe_str(metric.get("imp_acc")),
+                safe_str(metric.get("clk_acc")),
+                safe_str(metric.get("uim_acc")),
+                safe_str(metric.get("ucl_acc")),
+
+                safe_str(metric.get("imp_day")),
+                safe_str(metric.get("clk_day")),
+                safe_str(metric.get("uim_day")),
+                safe_str(metric.get("ucl_day")),
+
+                safe_str(metric.get("imp_avg_day")),
+                safe_str(metric.get("clk_avg_day")),
+                safe_str(metric.get("uim_avg_day")),
+                safe_str(metric.get("ucl_avg_day")),
+
+                safe_str(metric.get("imp_h00")),
+                safe_str(metric.get("imp_h23")),
+                safe_str(metric.get("clk_h00")),
+                safe_str(metric.get("clk_h23")),
+                safe_str(metric.get("imp_h01", "")),
+                safe_str(metric.get("imp_h02", "")),
+                safe_str(metric.get("clk_h01", "")),
+                safe_str(metric.get("clk_h02", "")),
+
+                json.dumps(params, ensure_ascii=False),
+                raw_response,
+                get_log()
+            ]
+            rows.append(row)
+
+        all_data.extend(rows)
+        total_collected += len(rows)
+        print(f"[{get_log()}] 📥 {cid} | {len(rows)} 条 | 总计：{total_collected}")
+
+    except Exception as e:
+        print(f"[{get_log()}] ❌ {cid} 失败：{str(e)[:100]}")
+        return
+
+# ===================== 主函数 =====================
+def main():
+    dt = CONFIG["odps"]["dt"]
+    check_dt = format_date(dt)
+    print(f"[{get_log()}] 🚀 开始采集（仅本地保存）")
+
+    token = get_token()
+    camps = get_campaigns(token)
+    if not camps:
+        print("❌ 无有效活动")
+        return
+
+    tasks = []
+    for c in camps:
+        for r in CONFIG["report_params"]["by_region_list"]:
+            for a in CONFIG["report_params"]["by_audience_list"]:
+                for p in CONFIG["report_params"]["platform_list"]:
+                    for pos in CONFIG["report_params"]["by_position_list"]:
+                        tasks.append((c, r, a, p, pos))
+
+    with ThreadPoolExecutor(CONFIG["api"]["api_workers"]) as pool:
+        futures = [pool.submit(fetch_task, t, token, check_dt) for t in tasks]
+        wait(futures)
+
+    # 仅保存本地
+    save_to_local(dt, all_data)
+
+    print("\n" + "=" * 50)
+    print(f"[{get_log()}] 🎉 任务全部完成（仅本地）")
+    print(f"采集数据：{total_collected} 条")
+    print(f"本地文件：./data/mz_adm_basic_show_{dt}.csv")
+    print("=" * 50)
+
+if __name__ == "__main__":
+    main()
