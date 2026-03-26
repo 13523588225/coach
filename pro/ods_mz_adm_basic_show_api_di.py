@@ -93,8 +93,6 @@ def get_adm_api_credentials():
     """
     try:
         with o.execute_sql(sql).open_reader() as reader:
-            if not reader.count:
-                raise Exception("❌ 未查询到 api_source='ADM' 的账号密码信息")
             record = reader[0]
             username = record["username"]
             password = record["passwords"]
