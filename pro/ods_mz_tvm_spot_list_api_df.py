@@ -15,7 +15,7 @@ API_CONFIG = {
     "token_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/token/get",
     "spot_list_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/spot/list",
     "timeout": 30,
-    "request_interval": 0.2
+    "request_interval": 0.1
 }
 
 # 2. ODPS配置（DataWorks自动鉴权）
@@ -72,21 +72,19 @@ def get_campaign_ids(dt: str) -> List[str]:
     try:
         o = ODPS(project=ODPS_PROJECT)
         sql = f"""
-        select distinct campaign_id 
-        from {TABLE_NAMES['campaign_list']} 
-        where dt = '{dt}'
+        SELECT DISTINCT campaign_id 
+        FROM ods_mz_tvm_campaigns_list_api_df 
+        WHERE dt = '{dt}' AND NVL(campaign_id, '') != ''
         """
         with o.execute_sql(sql).open_reader() as reader:
-            campaign_ids = []
-            for record in reader:
-                cid = to_string(record["campaign_id"])
-                if cid:
-                    campaign_ids.append(cid)
-            campaign_ids = list(set(campaign_ids))
-        print(f"✅ 从ODPS表获取到{len(campaign_ids)}个有效campaign_id（dt={dt}）")
+            campaign_ids = [to_string(record.campaign_id) for record in reader]
+
+        if not campaign_ids:
+            raise Exception(f"dt={dt} 无有效campaign_id")
         return campaign_ids
+
     except errors.ODPSError as e:
-        raise Exception(f"❌ 查询campaign_id失败：{str(e)}")
+        raise Exception(f"ODPS查询campaign_id失败：{str(e)}")
 
 
 # ===================== 秒针接口调用 =====================

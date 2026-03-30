@@ -1,16 +1,13 @@
 """
-秒针TV监测广告点位详情采集脚本（并行版+ODPS写入）
-数据来源：/monitortv/v1/spot/info 接口
-依赖spid_str：/monitortv/v1/spot/list 接口
-依赖campaign_id：/monitortv/v1/campaigns/list 接口
-Token来源：https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/token/get
-ODPS写入：清空旧分区+全量写入，保证同一分区数据完整
+秒针TV监测广告点位详情采集脚本
+数据来源：ODPS表获取campaign_id + 官方接口采集点位数据
+输出：ODPS表 ods_mz_tvm_spot_info_api_df
 """
 import requests
 import json
 import time
 import urllib3
-from datetime import datetime, date
+from datetime import datetime
 from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from odps import ODPS, errors
@@ -18,207 +15,156 @@ from odps import ODPS, errors
 # ===================== 基础配置 =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 1. 秒针接口配置
+# 接口配置
 API_CONFIG = {
     "token_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/token/get",
-    "campaign_list_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/campaigns/list",
     "spot_list_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/spot/list",
     "spot_info_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/spot/info",
-    "auth": {"username": "", "password": ""},  # 动态从数仓获取
+    "auth": {"username": "", "password": ""},
     "timeout": 30,
-    "request_interval": 0.01,  # 缩短请求间隔为0.01秒
-    "max_workers": 10  # 并行线程数（可根据接口限流调整）
+    "request_interval": 0.01,
+    "max_workers": 10
 }
 
-# 2. ODPS配置（DataWorks自动鉴权）
+# ODPS配置
 ODPS_PROJECT = ODPS().project
-TABLE_NAMES = {
-    "spot_info": "ods_mz_tvm_spot_info_api_df"  # 广告点位详情目标表
-}
-# 分区日期
+TABLE_NAMES = {"spot_info": "ods_mz_tvm_spot_info_api_df"}
 PARTITION_DT = args['dt']
 
 
-# ===================== 核心工具函数 =====================
+# ===================== 工具函数 =====================
 def get_etl_datetime() -> str:
-    """获取当前时间戳（yyyy-MM-dd HH:mm:ss）"""
+    """获取标准化时间戳"""
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def to_string(value) -> str:
-    """强制转换为字符串，处理空值/None"""
-    if value is None or value == "" or str(value).lower() == "null":
-        return ""
-    return str(value)
+    """空值安全转换为字符串"""
+    return "" if value is None or str(value).lower() == "null" else str(value)
 
 
-def get_log() -> str:
-    """获取日志时间戳"""
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
-# ===================== 从MaxCompute查询API账号密码 =====================
-def get_tvm_api_credentials():
-    """
-    从数仓表 ods_mz_user_api_df 查询TVM接口的账号密码
-    """
+# ===================== 账号认证 =====================
+def get_tvm_api_credentials() -> tuple:
+    """从数仓查询TVM接口账号密码"""
     o = ODPS(project=ODPS_PROJECT)
     sql = """
-    select username, passwords 
-    from ods_mz_user_api_df 
-    where api_source = 'TVM'
-    limit 1
-    """
-    try:
-        with o.execute_sql(sql).open_reader() as reader:
-            record = reader[0]
-            username = record["username"]
-            password = record["passwords"]
-            print(f"[{get_log()}] 🔐 成功从数仓获取TVM账号：{username}")
-            return username, password
-    except errors.ODPSError as e:
-        raise Exception(f"❌ 查询账号密码失败：{str(e)}")
+          select username, passwords
+          from ods_mz_user_api_df
+          where api_source = 'TVM' limit 1 \
+          """
+    with o.execute_sql(sql).open_reader() as reader:
+        record = reader[0]
+        return record["username"], record["passwords"]
 
 
-# ===================== ODPS写入 =====================
+# ===================== ODPS数据写入 =====================
 def write_to_odps(table_name: str, data: List[List], dt: str):
-    """通用ODPS写入函数（清空分区+写入）"""
+    """
+    写入ODPS表（清空旧分区+全量写入）
+    :param table_name: 目标表名
+    :param data: 待写入数据列表
+    :param dt: 分区日期
+    """
     if not data:
-        print(f"⚠️ {table_name} 无数据可写入")
+        print(f"⚠️ {table_name} 无数据写入")
         return
 
     o = ODPS(project=ODPS_PROJECT)
-    if not o.exist_table(table_name):
-        raise Exception(f"表{table_name}不存在")
-
     table = o.get_table(table_name)
     partition_spec = f"dt='{dt}'"
 
-    # 清空分区（防重复，保证同一分区数据完整）
+    # 清空旧分区
     if table.exist_partition(partition_spec):
         o.execute_sql(f"ALTER TABLE {table_name} DROP PARTITION ({partition_spec})")
-        print(f"✅ 清空分区：{table_name}.{partition_spec}")
 
-    # 写入数据
+    # 写入新数据
     with table.open_writer(partition=partition_spec, create_partition=True) as writer:
         writer.write(data)
-    print(f"✅ 写入成功：{table_name} | 分区{dt} | 条数{len(data)}")
+    print(f"✅ 写入成功：{table_name} | 条数{len(data)}")
 
 
-# ===================== 秒针接口调用 =====================
+# ===================== 接口请求核心 =====================
 def get_miaozhen_token() -> str:
-    """获取秒针TV监测Token"""
+    """获取接口访问Token"""
+    username, password = get_tvm_api_credentials()
+    API_CONFIG["auth"]["username"] = username
+    API_CONFIG["auth"]["password"] = password
+
+    resp = requests.post(
+        API_CONFIG["token_url"],
+        data=API_CONFIG["auth"],
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        timeout=API_CONFIG["timeout"],
+        verify=False
+    )
+    resp.raise_for_status()
+    token_data = resp.json()
+
+    if token_data.get("error_code") != 0:
+        raise Exception(f"Token获取失败：{token_data.get('error_message')}")
+    return to_string(token_data["result"]["access_token"])
+
+
+def get_campaign_ids(dt: str) -> List[str]:
+    """
+    从ODPS表查询指定dt分区的campaign_id
+    """
     try:
-        # 从数仓获取账号密码并更新配置
-        username, password = get_tvm_api_credentials()
-        API_CONFIG["auth"]["username"] = username
-        API_CONFIG["auth"]["password"] = password
+        o = ODPS(project=ODPS_PROJECT)
+        sql = f"""
+        SELECT DISTINCT campaign_id 
+        FROM ods_mz_tvm_campaigns_list_api_df 
+        WHERE dt = '{dt}' AND NVL(campaign_id, '') != ''
+        """
+        with o.execute_sql(sql).open_reader() as reader:
+            campaign_ids = [to_string(record.campaign_id) for record in reader]
 
-        resp = requests.post(
-            API_CONFIG["token_url"],
-            data=API_CONFIG["auth"],
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=API_CONFIG["timeout"],
-            verify=False
-        )
-        resp.raise_for_status()
-        token_data = resp.json()
-        if token_data.get("error_code") != 0:
-            raise Exception(f"Token错误：{token_data.get('error_message')}")
-        access_token = token_data.get("result", {}).get("access_token")
-        if not access_token:
-            raise Exception("Token为空")
-        return to_string(access_token)
-    except Exception as e:
-        raise Exception(f"获取Token失败：{str(e)}")
-
-
-def get_campaign_ids(token: str) -> List[str]:
-    """从campaigns/list接口获取所有campaign_id"""
-    try:
-        resp = requests.get(
-            f"{API_CONFIG['campaign_list_url']}?access_token={token}",
-            timeout=API_CONFIG["timeout"],
-            verify=False
-        )
-        resp.raise_for_status()
-        campaigns = resp.json().get("result", {}).get("campaigns", [])
-        # 提取并去重campaign_id
-        campaign_ids = list(set([to_string(c.get("campaign_id")) for c in campaigns if isinstance(c, dict)]))
-        print(f"✅ 获取到{len(campaign_ids)}个有效campaign_id")
+        if not campaign_ids:
+            raise Exception(f"dt={dt} 无有效campaign_id")
         return campaign_ids
-    except Exception as e:
-        raise Exception(f"获取campaign_id失败：{str(e)}")
+
+    except errors.ODPSError as e:
+        raise Exception(f"ODPS查询campaign_id失败：{str(e)}")
 
 
 def get_spid_str_list(token: str, campaign_id: str) -> List[str]:
-    """从spot/list接口获取单个campaign_id对应的spid_str列表"""
+    """获取单个活动下的spid_str列表"""
     try:
-        params = {
-            "access_token": token,
-            "campaign_id": campaign_id
-        }
         resp = requests.get(
             API_CONFIG["spot_list_url"],
-            params=params,
+            params={"access_token": token, "campaign_id": campaign_id},
             timeout=API_CONFIG["timeout"],
             verify=False
         )
         resp.raise_for_status()
         spot_data = resp.json()
+
         if spot_data.get("error_code") != 0:
-            print(f"⚠️ campaign_id={campaign_id} 获取spid_str失败：{spot_data.get('error_message')}")
             return []
 
-        spots = spot_data.get("result", [])
-        spid_str_list = [to_string(spot.get("spid_str")) for spot in spots if
-                         isinstance(spot, dict) and spot.get("spid_str")]
-        print(f"✅ campaign_id={campaign_id} 获取到{len(spid_str_list)}个有效spid_str")
-        time.sleep(API_CONFIG["request_interval"])
-        return spid_str_list
-    except Exception as e:
-        print(f"⚠️ campaign_id={campaign_id} 获取spid_str异常：{str(e)}")
-        time.sleep(API_CONFIG["request_interval"])
+        return [to_string(spot["spid_str"]) for spot in spot_data["result"] if spot.get("spid_str")]
+
+    except Exception:
         return []
+    finally:
+        time.sleep(API_CONFIG["request_interval"])
 
 
-def get_spot_info_worker(token: str, request_spid_str: str, request_campaign_id: str) -> Optional[Dict]:
-    """单个点位详情采集的工作函数（供线程池调用）"""
+def get_spot_info_worker(token: str, spid_str: str, campaign_id: str) -> Optional[Dict]:
+    """多线程采集单个点位详情数据"""
     try:
-        params = {
-            "access_token": token,
-            "spid_str": request_spid_str,
-            "campaign_id": request_campaign_id
-        }
-        # 构建完整请求URL
-        full_request_url = f"{API_CONFIG['spot_info_url']}?access_token={token}&spid_str={request_spid_str}&campaign_id={request_campaign_id}"
-
-        resp = requests.get(
-            API_CONFIG["spot_info_url"],
-            params=params,
-            timeout=API_CONFIG["timeout"],
-            verify=False
-        )
+        params = {"access_token": token, "spid_str": spid_str, "campaign_id": campaign_id}
+        resp = requests.get(API_CONFIG["spot_info_url"], params=params, timeout=API_CONFIG["timeout"], verify=False)
         resp.raise_for_status()
-        spot_info_data = resp.json()
+        data = resp.json()
 
-        if spot_info_data.get("error_code") != 0:
-            print(f"⚠️ spid_str={request_spid_str} 采集失败：{spot_info_data.get('error_message')}")
+        if data.get("error_code") != 0 or not isinstance(data.get("result"), dict):
             return None
 
-        result = spot_info_data.get("result", {})
-        if not isinstance(result, dict):
-            print(f"⚠️ spid_str={request_spid_str} 格式异常")
-            return None
-
-        etl_datetime = get_etl_datetime()
-        # 标准化字段
-        standard_spot_info = {
-            # 调用参数
-            "request_campaign_id": to_string(request_campaign_id),
-            "request_spid_str": to_string(request_spid_str),
-
-            # result字段
+        result = data["result"]
+        return {
+            "request_campaign_id": campaign_id,
+            "request_spid_str": spid_str,
             "result_spid_str": to_string(result.get("spid_str")),
             "caid": to_string(result.get("caid")),
             "created_time": to_string(result.get("created_time")),
@@ -249,124 +195,57 @@ def get_spot_info_worker(token: str, request_spid_str: str, request_campaign_id:
             "play_info": to_string(result.get("play_info")),
             "tag_place": to_string(result.get("tag_place")),
             "multi_tag": to_string(result.get("multi_tag")),
-
-            # 新增字段：完整接口请求URL
-            "full_request_url": to_string(full_request_url),
-
-            # 溯源字段
-            "pre_parse_raw_text": to_string(json.dumps(result, ensure_ascii=False)),
-            "etl_datetime": to_string(etl_datetime)
+            "full_request_url": resp.url,
+            "pre_parse_raw_text": json.dumps(result, ensure_ascii=False),
+            "etl_datetime": get_etl_datetime()
         }
-        print(f"✅ spid_str={request_spid_str} 采集成功")
-        time.sleep(API_CONFIG["request_interval"])
-        return standard_spot_info
-    except Exception as e:
-        print(f"⚠️ spid_str={request_spid_str} 采集异常：{str(e)}")
-        time.sleep(API_CONFIG["request_interval"])
+    except Exception:
         return None
+    finally:
+        time.sleep(API_CONFIG["request_interval"])
 
 
-# ===================== 主流程 =====================
+# ===================== 主执行流程 =====================
 def main():
     start_time = time.time()
     try:
-        # 1. 获取秒针Token
+        # 1. 获取认证Token
         token = get_miaozhen_token()
-        print(f"\n✅ Token获取成功：{token[:10]}...（部分隐藏）")
 
-        # 2. 获取所有campaign_id
-        campaign_ids = get_campaign_ids(token)
-        if not campaign_ids:
-            raise Exception("未获取到任何campaign_id，任务终止")
+        # 2. 获取所有活动ID
+        campaign_ids = get_campaign_ids(PARTITION_DT)
 
-        # 3. 批量获取所有spid_str
-        all_spid_str_with_campaign = []
-        for request_campaign_id in campaign_ids:
-            spid_str_list = get_spid_str_list(token, request_campaign_id)
-            if spid_str_list:
-                all_spid_str_with_campaign.extend([(s, request_campaign_id) for s in spid_str_list])
+        # 3. 批量获取点位标识
+        task_list = []
+        for cid in campaign_ids:
+            spid_list = get_spid_str_list(token, cid)
+            task_list.extend([(spid, cid) for spid in spid_list])
 
-        print(f"\n✅ 累计获取到{len(all_spid_str_with_campaign)}个待采集的(spid_str, campaign_id)组合")
-        if not all_spid_str_with_campaign:
-            raise Exception("未获取到任何spid_str，任务终止")
+        if not task_list:
+            raise Exception("无有效点位数据")
 
-        # 4. 多线程并行采集点位详情
-        all_spot_info_data = []
-        with ThreadPoolExecutor(max_workers=API_CONFIG["max_workers"]) as executor:
-            # 提交所有任务
-            future_to_task = {
-                executor.submit(get_spot_info_worker, token, spid_str, campaign_id): (spid_str, campaign_id)
-                for spid_str, campaign_id in all_spid_str_with_campaign
+        # 4. 多线程采集详情
+        result_data = []
+        with ThreadPoolExecutor(API_CONFIG["max_workers"]) as executor:
+            future_map = {
+                executor.submit(get_spot_info_worker, token, spid, cid): (spid, cid)
+                for spid, cid in task_list
             }
 
-            # 遍历完成的任务
-            for future in as_completed(future_to_task):
-                try:
-                    result = future.result()
-                    if result:
-                        all_spot_info_data.append(result)
-                except Exception as e:
-                    spid_str, campaign_id = future_to_task[future]
-                    print(f"⚠️ 任务(spid_str={spid_str}, campaign_id={campaign_id})执行异常：{str(e)}")
+            for future in as_completed(future_map):
+                res = future.result()
+                if res:
+                    result_data.append(res)
 
-        # 5. 格式化写入数据（与表字段顺序严格一致）
-        spot_info_write_data = [
-            [
-                # 调用参数
-                t["request_campaign_id"],
-                t["request_spid_str"],
+        # 5. 数据格式化并写入ODPS
+        write_data = [[v for k, v in item.items()] for item in result_data]
+        write_to_odps(TABLE_NAMES["spot_info"], write_data, PARTITION_DT)
 
-                # result所有字段
-                t["result_spid_str"],
-                t["caid"],
-                t["created_time"],
-                t["placement"],
-                t["channel_name"],
-                t["pub_id"],
-                t["publisher"],
-                t["description"],
-                t["ad_type"],
-                t["category"],
-                t["brand"],
-                t["product"],
-                t["copyname"],
-                t["buyingregular"],
-                t["buyingsub"],
-                t["mediasub"],
-                t["generalbuying"],
-                t["spottype"],
-                t["spotplan"],
-                t["spot_plan_record_id"],
-                t["caguid"],
-                t["celebrity_stids"],
-                t["playinfo_stids"],
-                t["spots_display_type"],
-                t["purchasetype"],
-                t["playpurchasetype"],
-                t["mm_channe_id"],
-                t["play_info"],
-                t["tag_place"],
-                t["multi_tag"],
-
-                # 新增字段：完整接口请求URL
-                t["full_request_url"],
-
-                # 溯源字段
-                t["pre_parse_raw_text"],
-                t["etl_datetime"]
-            ] for t in all_spot_info_data
-        ]
-
-        # 6. 写入ODPS（保证同一分区数据完整）
-        write_to_odps(TABLE_NAMES["spot_info"], spot_info_write_data, PARTITION_DT)
-
-        # 7. 打印采集结果
-        print(f"\n========== 采集结果汇总 ==========")
-        print(f"累计采集到{len(all_spot_info_data)}个广告点位详情数据")
-        print(f"任务总耗时：{time.time() - start_time:.2f}秒")
+        # 6. 任务汇总
+        print(f"\n任务完成 | 总耗时：{time.time() - start_time:.2f}s | 采集条数：{len(result_data)}")
 
     except Exception as e:
-        print(f"\n❌ 任务失败：{str(e)}")
+        print(f"任务失败：{str(e)}")
         raise
 
 
