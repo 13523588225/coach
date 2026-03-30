@@ -15,10 +15,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # ===================== 全局配置 =====================
 urllib3.disable_warnings(InsecureRequestWarning)
 
-# 1. 秒针接口配置
+# 1. 秒针接口配置（移除campaign_list_url，保留其他）
 API_CONFIG = {
     "token_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/token/get",
-    "campaign_list_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/campaigns/list",
     "report_basic_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/reports/basic/show",
     "auth": {"username": "", "password": ""},
     "timeout": 30,
@@ -144,31 +143,39 @@ def get_miaozhen_token() -> str:
         raise Exception(f"获取Token失败：{str(e)}")
 
 
-# ===================== 获取活动列表 =====================
-def get_campaign_list(token: str) -> List[Dict]:
+# ===================== 获取活动列表（修改核心逻辑：从ODPS查询） =====================
+def get_campaign_list() -> List[Dict]:
     try:
-        resp = SESSION.get(
-            f"{API_CONFIG['campaign_list_url']}?access_token={token}",
-            timeout=API_CONFIG["timeout"],
-            verify=False
-        )
-        resp.raise_for_status()
-        campaigns = resp.json().get("result", {}).get("campaigns", [])
+        o = ODPS(project=ODPS_PROJECT)
+        # 构造查询SQL：按业务日期筛选活动
+        sql = """
+              select campaign_id, start_time, end_time
+              from ods_mz_tvm_campaigns_list_api_df 
+              where args['dt'] between replace(start_time, '-', '') and replace(end_time, '-', '')
+              """
+        print(f"[{get_log()}] 📝 执行SQL：{sql}")
+
         valid_campaigns = []
-        for c in campaigns:
-            if isinstance(c, dict) and c.get("campaign_id"):
-                camp_start = to_string(c.get("start_time"))
-                camp_end = to_string(c.get("end_time"))
-                if is_date_in_campaign_valid(DT, camp_start, camp_end):
-                    valid_campaigns.append({
-                        "campaign_id": to_string(c.get("campaign_id")),
-                        "camp_start_date": camp_start,
-                        "camp_end_date": camp_end
-                    })
+        with o.execute_sql(sql).open_reader() as reader:
+            for record in reader:
+                # 直接取值并转换字符串
+                campaign_id = to_string(record.campaign_id)
+                # 无活动ID则跳过
+                if not campaign_id:
+                    continue
+                # 直接组装数据并添加
+                valid_campaigns.append({
+                    "campaign_id": campaign_id,
+                    "camp_start_date": to_string(record.start_time),
+                    "camp_end_date": to_string(record.end_time)
+                })
+
         print(f"✅ 有效活动数：{len(valid_campaigns)}")
         return valid_campaigns
+    except errors.ODPSError as e:
+        raise Exception(f"查询活动列表失败：{str(e)}")
     except Exception as e:
-        raise Exception(f"获取活动失败：{str(e)}")
+        raise Exception(f"处理活动列表失败：{str(e)}")
 
 
 # ===================== 解析单活动数据（严格对齐表结构） =====================
@@ -338,8 +345,8 @@ def main():
 
         # 1. 获取Token
         token = get_miaozhen_token()
-        # 2. 获取活动
-        campaign_list = get_campaign_list(token)
+        # 2. 获取活动列表（修改：不再传token）
+        campaign_list = get_campaign_list()
         if not campaign_list:
             print("⚠️ 无有效活动")
             return
