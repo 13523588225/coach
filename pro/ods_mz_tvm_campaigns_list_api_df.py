@@ -1,8 +1,3 @@
-'''PyODPS 3
-请确保不要使用从 MaxCompute下载数据来处理。下载数据操作常包括Table/Instance的open_reader以及 DataFrame的to_pandas方法。
-推荐使用 MaxFrame DataFrame（从 MaxCompute 表创建）来处理数据，MaxFrame DataFrame数据计算发生在MaxCompute集群，无需拉数据至本地。
-MaxFrame相关介绍及使用可参考：https://help.aliyun.com/zh/maxcompute/user-guide/maxframe
-'''
 import json
 import time
 from datetime import datetime
@@ -12,7 +7,7 @@ import urllib3
 from odps import ODPS, errors
 
 # ===================== 基础配置 =====================
-urllib3.disable_warnings(InsecureRequestWarning)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 1. 秒针接口配置
 API_CONFIG = {
@@ -76,54 +71,64 @@ def get_miaozhen_token() -> str:
         raise Exception(f"获取Token失败：{str(e)}")
 
 def get_campaign_list(token: str) -> List[Dict]:
-    """分页采集，严格匹配指定字段输出"""
+    """修复分页逻辑：先拿总页数，再遍历所有页"""
     all_campaigns = []
     page_size = API_CONFIG["page_size"]
-    total_page_no = 1
-    total_record_no = 0
     etl_datetime = get_etl_datetime()
 
     try:
+        # ======================================
+        # 步骤1：先请求第1页，获取总记录数、总页数
+        # ======================================
+        first_url = (
+            f"{API_CONFIG['campaign_list_url']}?access_token={token}"
+            f"&pageSize={page_size}&pageNo=1"
+        )
+        print(f"[{get_log()}] 📄 请求第 1 页，获取总页数...")
+        resp = requests.get(first_url, timeout=API_CONFIG["timeout"], verify=False)
+        resp.raise_for_status()
+        response_data = resp.json()
+
+        if response_data.get("error_code") != 0:
+            raise Exception(f"接口错误：{response_data.get('error_message')}")
+
+        result_data = response_data.get("result", {})
+        total_record_no = result_data.get("totalRecordNo", 0)
+        total_page_no = result_data.get("totalPageNo", 1)
+        print(f"[{get_log()}] 📊 总记录数：{total_record_no} | 总页数：{total_page_no}")
+
+        # ======================================
+        # 步骤2：循环遍历 所有页码（1 ~ total_page_no）
+        # ======================================
         for page_no in range(1, total_page_no + 1):
             full_request_url = (
                 f"{API_CONFIG['campaign_list_url']}?access_token={token}"
                 f"&pageSize={page_size}&pageNo={page_no}"
             )
-            print(f"[{get_log()}] 请求第 {page_no}/{total_page_no} 页")
+            print(f"[{get_log()}] 📄 请求第 {page_no}/{total_page_no} 页")
 
             resp = requests.get(full_request_url, timeout=API_CONFIG["timeout"], verify=False)
             resp.raise_for_status()
             response_data = resp.json()
+            campaigns = response_data.get("result", {}).get("campaigns", [])
 
-            if response_data.get("error_code") != 0:
-                raise Exception(f"接口错误：{response_data.get('error_message')}")
-
-            result_data = response_data.get("result", {})
-            campaigns = result_data.get("campaigns", [])
-
-            if page_no == 1:
-                total_record_no = result_data.get("totalRecordNo", 0)
-                total_page_no = result_data.get("totalPageNo", 1)
-                print(f"[{get_log()}] 总记录数：{total_record_no} | 总页数：{total_page_no}")
-
-            # 严格按照指定字段名+顺序构建
+            # 构造数据
             for c in campaigns:
                 if not isinstance(c, dict):
                     continue
                 all_campaigns.append({
-                    # 严格匹配用户指定字段顺序+命名
                     "campaign_id": to_string(c.get("campaign_id")),
                     "start_time": to_string(c.get("start_time")),
                     "end_time": to_string(c.get("end_time")),
                     "order_id": to_string(c.get("order_id")),
                     "scheduling": to_string(c.get("scheduling")),
                     "campaign_name": to_string(c.get("campaign_name")),
-                    "s_description": to_string(c.get("description")),  # 重命名
+                    "s_description": to_string(c.get("description")),
                     "created_time": to_string(c.get("created_time")),
                     "advertiser": to_string(c.get("advertiser")),
                     "agency": to_string(c.get("agency")),
                     "brand": to_string(c.get("brand")),
-                    "s_status": to_string(c.get("status")),  # 重命名
+                    "s_status": to_string(c.get("status")),
                     "verify_version": to_string(c.get("verify_version")),
                     "total_net_id": to_string(c.get("total_net_id")),
                     "calculate_type": to_string(c.get("calculate_type")),
@@ -141,8 +146,9 @@ def get_campaign_list(token: str) -> List[Dict]:
                 })
             time.sleep(API_CONFIG["request_interval"])
 
-        print(f"[{get_log()}] 采集完成，总条数：{len(all_campaigns)}")
+        print(f"[{get_log()}] ✅ 采集完成，总条数：{len(all_campaigns)}")
         return all_campaigns
+
     except Exception as e:
         raise Exception(f"分页采集失败：{str(e)}")
 
