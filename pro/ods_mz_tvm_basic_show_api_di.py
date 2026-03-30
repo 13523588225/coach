@@ -25,14 +25,14 @@ API_CONFIG = {
     "request_interval": 0.003
 }
 
-# 2. ODPS配置（严格匹配最新表名）
+# 2. ODPS配置
 ODPS_PROJECT = ODPS().project
 TARGET_TABLE = "ods_mz_tvm_basic_show_api_di"
 
 # 3. 业务日期参数
 DT = args['dt']
 
-# 4. 接口维度参数（已移除platform）
+# 4. 接口维度参数
 REPORT_PARAMS = {
     "metrics": "all",
     "by_region": ["level0", "level1", "level2"],
@@ -46,7 +46,7 @@ PARALLEL_CONFIG = {
     "batch_size": 50000
 }
 
-# 6. 24小时字段
+# 6. 小时字段
 HOUR_FIELDS = [f"h{i:02d}" for i in range(24)]
 
 # ===================== 全局优化 =====================
@@ -101,7 +101,7 @@ def to_bigint(value) -> int:
         return 0
 
 
-# ===================== 获取API账号 =====================
+# ===================== 从MaxCompute查询API账号密码 =====================
 def get_tvm_api_credentials():
     o = ODPS(project=ODPS_PROJECT)
     sql = """
