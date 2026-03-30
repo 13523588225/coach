@@ -1,5 +1,7 @@
 -- API表结构
-drop table if exists coach_marketing_hub.ods_mz_adm_campaigns_list_api_df;
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_campaigns_list_api_df
+;
+
 CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_campaigns_list_api_df
 (
     campaign_id         STRING COMMENT '活动ID'
@@ -28,58 +30,59 @@ PARTITIONED BY
 )
 ;
 
-
 CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_basic_show_api_di
 (
-    campaign_id           STRING COMMENT '活动ID',
-    campaign_start_date   STRING COMMENT '活动开始日期',
-    campaign_end_date     STRING COMMENT '活动结束日期',
-    report_day_date       STRING COMMENT '报表日期',
-    by_position           STRING COMMENT '统计维度-位置',
-    by_region             STRING COMMENT '统计维度-地域',
-    metrics               STRING COMMENT '指标类型',
-    by_audience           STRING COMMENT '统计维度-受众',
-    platform              STRING COMMENT '统计维度-平台',
-    s_version             STRING COMMENT '报表版本',
-    platform_resp         STRING COMMENT '平台返回值',
-    total_spot_num        STRING COMMENT '总点位数量',
-    audience              STRING COMMENT '受众类型',
-    target_id             STRING COMMENT '人群包ID',
-    publisher_id          STRING COMMENT '媒体ID',
-    spot_id               STRING COMMENT '点位ID',
-    keyword_id            STRING COMMENT '关键词ID',
-    region_id             STRING COMMENT '地域ID',
-    universe              STRING COMMENT '触达量级',
-    imp_acc               STRING COMMENT '累计曝光量',
-    clk_acc               STRING COMMENT '累计点击量',
-    uim_acc               STRING COMMENT '累计独立曝光',
-    ucl_acc               STRING COMMENT '累计独立点击',
-    imp_day               STRING COMMENT '日曝光',
-    clk_day               STRING COMMENT '日点击',
-    uim_day               STRING COMMENT '日独立曝光',
-    ucl_day               STRING COMMENT '日独立点击',
-    imp_avg_day           STRING COMMENT '日均曝光',
-    clk_avg_day           STRING COMMENT '日均点击',
-    uim_avg_day           STRING COMMENT '日均独立曝光',
-    ucl_avg_day           STRING COMMENT '日均独立点击',
-    imp_acc_h00           STRING COMMENT '0时累计曝光',
-    imp_acc_h23           STRING COMMENT '23时累计曝光',
-    clk_acc_h00           STRING COMMENT '0时累计点击',
-    clk_acc_h23           STRING COMMENT '23时累计点击',
-    full_request_url      STRING COMMENT '完整接口请求URL',
-    pre_parse_raw_text    STRING COMMENT '原始返回报文',
-    etl_datetime          STRING COMMENT '采集时间'
+    campaign_id          STRING COMMENT '活动ID'
+    ,campaign_start_date STRING COMMENT '活动开始日期'
+    ,campaign_end_date   STRING COMMENT '活动结束日期'
+    ,report_day_date     STRING COMMENT '报表日期'
+    ,by_position         STRING COMMENT '统计维度-位置'
+    ,by_region           STRING COMMENT '统计维度-地域'
+    ,metrics             STRING COMMENT '指标类型'
+    ,by_audience         STRING COMMENT '统计维度-受众'
+    ,platform            STRING COMMENT '统计维度-平台'
+    ,s_version           STRING COMMENT '报表版本'
+    ,platform_resp       STRING COMMENT '平台返回值'
+    ,total_spot_num      STRING COMMENT '总点位数量'
+    ,audience            STRING COMMENT '受众类型'
+    ,target_id           STRING COMMENT '人群包ID'
+    ,publisher_id        STRING COMMENT '媒体ID'
+    ,spot_id             STRING COMMENT '点位ID'
+    ,keyword_id          STRING COMMENT '关键词ID'
+    ,region_id           STRING COMMENT '地域ID'
+    ,universe            STRING COMMENT '触达量级'
+    ,imp_acc             STRING COMMENT '累计曝光量'
+    ,clk_acc             STRING COMMENT '累计点击量'
+    ,uim_acc             STRING COMMENT '累计独立曝光'
+    ,ucl_acc             STRING COMMENT '累计独立点击'
+    ,imp_day             STRING COMMENT '日曝光'
+    ,clk_day             STRING COMMENT '日点击'
+    ,uim_day             STRING COMMENT '日独立曝光'
+    ,ucl_day             STRING COMMENT '日独立点击'
+    ,imp_avg_day         STRING COMMENT '日均曝光'
+    ,clk_avg_day         STRING COMMENT '日均点击'
+    ,uim_avg_day         STRING COMMENT '日均独立曝光'
+    ,ucl_avg_day         STRING COMMENT '日均独立点击'
+    ,imp_acc_h00         STRING COMMENT '0时累计曝光'
+    ,imp_acc_h23         STRING COMMENT '23时累计曝光'
+    ,clk_acc_h00         STRING COMMENT '0时累计点击'
+    ,clk_acc_h23         STRING COMMENT '23时累计点击'
+    ,full_request_url    STRING COMMENT '完整接口请求URL'
+    ,pre_parse_raw_text  STRING COMMENT '原始返回报文'
+    ,etl_datetime        STRING COMMENT '采集时间'
 )
 COMMENT '秒针MonitorTV基础展示报表API采集表'
-PARTITIONED BY
+PARTITIONED BY 
 (
     dt                   STRING COMMENT '分区日期（yyyyMMdd，对应报表单日日期）'
 )
 ;
 
 -- 创建秒针活动列表分区表
-drop table if exists coach_marketing_hub.ods_mz_tvm_campaigns_list_api_df;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_campaigns_list_api_df
+DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_tvm_campaigns_list_api_df
+;
+
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_campaigns_list_api_df
 (
     campaign_id         STRING COMMENT '活动ID（主键）'
     ,start_time         STRING COMMENT '活动开始时间（yyyy-MM-dd）'
@@ -100,10 +103,10 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_campaigns_list_api_df
     ,sivt_region        STRING COMMENT 'SIVT区域（可为空）'
     ,target_list        STRING COMMENT '目标列表（可为空，JSON格式）'
     ,order_title        STRING COMMENT '订单标题（可为空）'
-    ,total_record_no STRING COMMENT '接口返回总记录数'
-    ,total_page_no STRING COMMENT '接口返回总页数'
-    ,current_page_no STRING COMMENT '当前数据所属页码'
-    ,page_size STRING COMMENT '每页数据条数(固定50)'
+    ,total_record_no    STRING COMMENT '接口返回总记录数'
+    ,total_page_no      STRING COMMENT '接口返回总页数'
+    ,current_page_no    STRING COMMENT '当前数据所属页码'
+    ,page_size          STRING COMMENT '每页数据条数(固定50)'
     ,full_request_url   STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text STRING COMMENT '源解析文本'
     ,etl_datetime       STRING COMMENT '数据采集时间（yyyy-MM-dd HH:mm:ss）'
@@ -115,117 +118,112 @@ PARTITIONED BY
 )
 ;
 
-
-CREATE TABLE if not exists coach_marketing_hub.ods_mz_tvm_basic_show_api_di (
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_basic_show_api_di
+(
     -- ===================== 请求参数（核心需求） =====================
-    request_campaign_id     STRING COMMENT '请求参数-活动ID',
-    request_date            STRING COMMENT '请求参数-数据日期(yyyy-MM-dd)',
-    request_metrics         STRING COMMENT '请求参数-指标类型',
-    request_by_position     STRING COMMENT '请求参数-投放维度',
-    request_by_region       STRING COMMENT '请求参数-地域维度',
-    request_by_audience     STRING COMMENT '请求参数-受众维度',
-
+    request_campaign_id  STRING COMMENT '请求参数-活动ID'
+    ,request_date        STRING COMMENT '请求参数-数据日期(yyyy-MM-dd)'
+    ,request_metrics     STRING COMMENT '请求参数-指标类型'
+    ,request_by_position STRING COMMENT '请求参数-投放维度'
+    ,request_by_region   STRING COMMENT '请求参数-地域维度'
+    ,request_by_audience STRING COMMENT '请求参数-受众维度'
     -- ===================== 原有业务基础字段 =====================
-    campaign_id             STRING COMMENT '接口返回-活动ID',
-    camp_start_date         STRING COMMENT '活动开始日期',
-    camp_end_date           STRING COMMENT '活动结束日期',
-    result_date             STRING COMMENT '接口返回-数据日期',
-    s_version               BIGINT COMMENT '数据版本号',
-    publisher_id            STRING COMMENT '媒体ID',
-    spot_id                 STRING COMMENT '广告位ID',
-    spot_id_str             STRING COMMENT '广告位ID字符串',
-    audience                STRING COMMENT '受众类型',
-    universe                STRING COMMENT '受众范围',
-    region_id               STRING COMMENT '地域ID',
-    target_def              STRING COMMENT '受众定向规则',
-    target_name             STRING COMMENT '受众名称',
-    target_id               STRING COMMENT '受众ID',
-
+    ,campaign_id         STRING COMMENT '接口返回-活动ID'
+    ,camp_start_date     STRING COMMENT '活动开始日期'
+    ,camp_end_date       STRING COMMENT '活动结束日期'
+    ,result_date         STRING COMMENT '接口返回-数据日期'
+    ,s_version           BIGINT COMMENT '数据版本号'
+    ,publisher_id        STRING COMMENT '媒体ID'
+    ,spot_id             STRING COMMENT '广告位ID'
+    ,spot_id_str         STRING COMMENT '广告位ID字符串'
+    ,audience            STRING COMMENT '受众类型'
+    ,universe            STRING COMMENT '受众范围'
+    ,region_id           STRING COMMENT '地域ID'
+    ,target_def          STRING COMMENT '受众定向规则'
+    ,target_name         STRING COMMENT '受众名称'
+    ,target_id           STRING COMMENT '受众ID'
     -- ===================== 核心指标字段 =====================
-    imp_acc                 BIGINT COMMENT '累计曝光量',
-    clk_acc                 BIGINT COMMENT '累计点击量',
-    uim_acc                 BIGINT COMMENT '累计独立曝光用户数',
-    ucl_acc                 BIGINT COMMENT '累计独立点击用户数',
-    imp_day                 BIGINT COMMENT '日曝光量',
-    clk_day                 BIGINT COMMENT '日点击量',
-    uim_day                 BIGINT COMMENT '日独立曝光用户数',
-    ucl_day                 BIGINT COMMENT '日独立点击用户数',
-    imp_avg_day             BIGINT COMMENT '日均曝光量',
-    clk_avg_day             BIGINT COMMENT '日均点击量',
-    uim_avg_day             BIGINT COMMENT '日均独立曝光用户数',
-    ucl_avg_day             BIGINT COMMENT '日均独立点击用户数',
-
+    ,imp_acc             BIGINT COMMENT '累计曝光量'
+    ,clk_acc             BIGINT COMMENT '累计点击量'
+    ,uim_acc             BIGINT COMMENT '累计独立曝光用户数'
+    ,ucl_acc             BIGINT COMMENT '累计独立点击用户数'
+    ,imp_day             BIGINT COMMENT '日曝光量'
+    ,clk_day             BIGINT COMMENT '日点击量'
+    ,uim_day             BIGINT COMMENT '日独立曝光用户数'
+    ,ucl_day             BIGINT COMMENT '日独立点击用户数'
+    ,imp_avg_day         BIGINT COMMENT '日均曝光量'
+    ,clk_avg_day         BIGINT COMMENT '日均点击量'
+    ,uim_avg_day         BIGINT COMMENT '日均独立曝光用户数'
+    ,ucl_avg_day         BIGINT COMMENT '日均独立点击用户数'
     -- ===================== 24小时分段曝光指标 =====================
-    imp_h00                 BIGINT COMMENT '00点曝光量',
-    imp_h01                 BIGINT COMMENT '01点曝光量',
-    imp_h02                 BIGINT COMMENT '02点曝光量',
-    imp_h03                 BIGINT COMMENT '03点曝光量',
-    imp_h04                 BIGINT COMMENT '04点曝光量',
-    imp_h05                 BIGINT COMMENT '05点曝光量',
-    imp_h06                 BIGINT COMMENT '06点曝光量',
-    imp_h07                 BIGINT COMMENT '07点曝光量',
-    imp_h08                 BIGINT COMMENT '08点曝光量',
-    imp_h09                 BIGINT COMMENT '09点曝光量',
-    imp_h10                 BIGINT COMMENT '10点曝光量',
-    imp_h11                 BIGINT COMMENT '11点曝光量',
-    imp_h12                 BIGINT COMMENT '12点曝光量',
-    imp_h13                 BIGINT COMMENT '13点曝光量',
-    imp_h14                 BIGINT COMMENT '14点曝光量',
-    imp_h15                 BIGINT COMMENT '15点曝光量',
-    imp_h16                 BIGINT COMMENT '16点曝光量',
-    imp_h17                 BIGINT COMMENT '17点曝光量',
-    imp_h18                 BIGINT COMMENT '18点曝光量',
-    imp_h19                 BIGINT COMMENT '19点曝光量',
-    imp_h20                 BIGINT COMMENT '20点曝光量',
-    imp_h21                 BIGINT COMMENT '21点曝光量',
-    imp_h22                 BIGINT COMMENT '22点曝光量',
-    imp_h23                 BIGINT COMMENT '23点曝光量',
-
+    ,imp_h00             BIGINT COMMENT '00点曝光量'
+    ,imp_h01             BIGINT COMMENT '01点曝光量'
+    ,imp_h02             BIGINT COMMENT '02点曝光量'
+    ,imp_h03             BIGINT COMMENT '03点曝光量'
+    ,imp_h04             BIGINT COMMENT '04点曝光量'
+    ,imp_h05             BIGINT COMMENT '05点曝光量'
+    ,imp_h06             BIGINT COMMENT '06点曝光量'
+    ,imp_h07             BIGINT COMMENT '07点曝光量'
+    ,imp_h08             BIGINT COMMENT '08点曝光量'
+    ,imp_h09             BIGINT COMMENT '09点曝光量'
+    ,imp_h10             BIGINT COMMENT '10点曝光量'
+    ,imp_h11             BIGINT COMMENT '11点曝光量'
+    ,imp_h12             BIGINT COMMENT '12点曝光量'
+    ,imp_h13             BIGINT COMMENT '13点曝光量'
+    ,imp_h14             BIGINT COMMENT '14点曝光量'
+    ,imp_h15             BIGINT COMMENT '15点曝光量'
+    ,imp_h16             BIGINT COMMENT '16点曝光量'
+    ,imp_h17             BIGINT COMMENT '17点曝光量'
+    ,imp_h18             BIGINT COMMENT '18点曝光量'
+    ,imp_h19             BIGINT COMMENT '19点曝光量'
+    ,imp_h20             BIGINT COMMENT '20点曝光量'
+    ,imp_h21             BIGINT COMMENT '21点曝光量'
+    ,imp_h22             BIGINT COMMENT '22点曝光量'
+    ,imp_h23             BIGINT COMMENT '23点曝光量'
     -- ===================== 24小时分段点击指标 =====================
-    clk_h00                 BIGINT COMMENT '00点点击量',
-    clk_h01                 BIGINT COMMENT '01点点击量',
-    clk_h02                 BIGINT COMMENT '02点点击量',
-    clk_h03                 BIGINT COMMENT '03点点击量',
-    clk_h04                 BIGINT COMMENT '04点点击量',
-    clk_h05                 BIGINT COMMENT '05点点击量',
-    clk_h06                 BIGINT COMMENT '06点点击量',
-    clk_h07                 BIGINT COMMENT '07点点击量',
-    clk_h08                 BIGINT COMMENT '08点点击量',
-    clk_h09                 BIGINT COMMENT '09点点击量',
-    clk_h10                 BIGINT COMMENT '10点点击量',
-    clk_h11                 BIGINT COMMENT '11点点击量',
-    clk_h12                 BIGINT COMMENT '12点点击量',
-    clk_h13                 BIGINT COMMENT '13点点击量',
-    clk_h14                 BIGINT COMMENT '14点点击量',
-    clk_h15                 BIGINT COMMENT '15点点击量',
-    clk_h16                 BIGINT COMMENT '16点点击量',
-    clk_h17                 BIGINT COMMENT '17点点击量',
-    clk_h18                 BIGINT COMMENT '18点点击量',
-    clk_h19                 BIGINT COMMENT '19点点击量',
-    clk_h20                 BIGINT COMMENT '20点点击量',
-    clk_h21                 BIGINT COMMENT '21点点击量',
-    clk_h22                 BIGINT COMMENT '22点点击量',
-    clk_h23                 BIGINT COMMENT '23点点击量',
-
+    ,clk_h00             BIGINT COMMENT '00点点击量'
+    ,clk_h01             BIGINT COMMENT '01点点击量'
+    ,clk_h02             BIGINT COMMENT '02点点击量'
+    ,clk_h03             BIGINT COMMENT '03点点击量'
+    ,clk_h04             BIGINT COMMENT '04点点击量'
+    ,clk_h05             BIGINT COMMENT '05点点击量'
+    ,clk_h06             BIGINT COMMENT '06点点击量'
+    ,clk_h07             BIGINT COMMENT '07点点击量'
+    ,clk_h08             BIGINT COMMENT '08点点击量'
+    ,clk_h09             BIGINT COMMENT '09点点击量'
+    ,clk_h10             BIGINT COMMENT '10点点击量'
+    ,clk_h11             BIGINT COMMENT '11点点击量'
+    ,clk_h12             BIGINT COMMENT '12点点击量'
+    ,clk_h13             BIGINT COMMENT '13点点击量'
+    ,clk_h14             BIGINT COMMENT '14点点击量'
+    ,clk_h15             BIGINT COMMENT '15点点击量'
+    ,clk_h16             BIGINT COMMENT '16点点击量'
+    ,clk_h17             BIGINT COMMENT '17点点击量'
+    ,clk_h18             BIGINT COMMENT '18点点击量'
+    ,clk_h19             BIGINT COMMENT '19点点击量'
+    ,clk_h20             BIGINT COMMENT '20点点击量'
+    ,clk_h21             BIGINT COMMENT '21点点击量'
+    ,clk_h22             BIGINT COMMENT '22点点击量'
+    ,clk_h23             BIGINT COMMENT '23点点击量'
     -- ===================== 新增字段 =========
-    full_request_url        STRING COMMENT '完整接口请求URL',
-    pre_parse_raw_text      STRING COMMENT '原始返回数据JSON',
-    etl_datetime            STRING COMMENT '数据加工时间'
+    ,full_request_url    STRING COMMENT '完整接口请求URL'
+    ,pre_parse_raw_text  STRING COMMENT '原始返回数据JSON'
+    ,etl_datetime        STRING COMMENT '数据加工时间'
 )
 COMMENT '秒针电视广告基础报表API数据表'
-PARTITIONED BY (
-    dt STRING COMMENT '日期分区，格式：yyyyMMdd'
+PARTITIONED BY 
+(
+    dt                   STRING COMMENT '日期分区，格式：yyyyMMdd'
 )
 ;
 
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_list_spots_api_df
+;
 
-
-drop table if exists coach_marketing_hub.ods_mz_adm_list_spots_api_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_list_spots_api_df
 (
     -- 一、接口调用参数（核心）
-    request_campaign_id  STRING COMMENT '调用list_spots时传入的campaign_id（请求参数）'
-    -- 二、接口返回所有字段（嵌套字段序列化为JSON字符串）
+    request_campaign_id  STRING COMMENT '调用list_spots时传入的campaign_id（请求参数）' -- 二、接口返回所有字段（嵌套字段序列化为JSON字符串）
     ,CAGUID              STRING COMMENT '活动全局唯一标识（示例：空字符串）'
     ,s_GUID              STRING COMMENT '全局唯一标识（示例：空字符串）'
     ,adposition_type     STRING COMMENT '广告位类型（示例：Banner）'
@@ -243,8 +241,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_list_spots_api_df
     ,spot_id_str         STRING COMMENT '广告位字符串ID（示例：91m0F）'
     ,spot_plan           STRING COMMENT '广告位计划（空数组，序列化为"[]"）'
     ,tracking_tags       STRING COMMENT '追踪标签（嵌套数组，序列化为JSON字符串，示例：[{"impression_url":"https://xxx"},{"click_url":"https://xxx"}]）'
-    ,vending_model       STRING COMMENT '售卖模式（示例：常规购买-常规投放）'
-    -- 三、补充溯源字段
+    ,vending_model       STRING COMMENT '售卖模式（示例：常规购买-常规投放）' -- 三、补充溯源字段
     ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text  STRING COMMENT '单条广告位数据的原始JSON字符串，用于问题追溯'
     ,etl_datetime        STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
@@ -256,14 +253,14 @@ PARTITIONED BY
 )
 ;
 
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_show_spot_api_df
+;
 
-drop table if exists coach_marketing_hub.ods_mz_adm_show_spot_api_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_show_spot_api_df
 (
     -- 一、接口调用参数（核心双参数）
     request_campaign_id  STRING COMMENT '调用show_spot时传入的campaign_id（请求参数）'
-    ,request_spot_id_str STRING COMMENT '调用show_spot时传入的spot_id_str（请求参数）'
-    -- 二、接口返回所有字段
+    ,request_spot_id_str STRING COMMENT '调用show_spot时传入的spot_id_str（请求参数）' -- 二、接口返回所有字段
     ,publisher_id        STRING COMMENT '发布方ID（数字型，示例：1）'
     ,channel_name        STRING COMMENT '渠道名称（示例：F18-30 人群包）'
     ,publisher_name      STRING COMMENT '发布方名称（示例：哔哩哔哩）'
@@ -280,8 +277,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_show_spot_api_df
     ,placement_name      STRING COMMENT '投放位置名称（示例：ALL_信息流_KOL3）'
     ,spot_id_str         STRING COMMENT '广告位字符串ID（示例：91m0C）'
     ,keyword             STRING COMMENT '广告位字符串ID（示例：91m0C）'
-    ,adposition_type     STRING COMMENT '广告位类型（示例：信息流）'
-    -- 三、补充溯源字段
+    ,adposition_type     STRING COMMENT '广告位类型（示例：信息流）' -- 三、补充溯源字段
     ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text  STRING COMMENT '单条广告位详情的原始JSON字符串，用于问题追溯'
     ,etl_datetime        STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
@@ -293,16 +289,16 @@ PARTITIONED BY
 )
 ;
 
-drop table if exists coach_marketing_hub.ods_mz_adm_list_targets_api_df;
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_list_targets_api_df
+;
+
 CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_list_targets_api_df
 (
     -- 一、接口调用参数（核心）
-    request_campaign_id  STRING COMMENT '调用list_targets时传入的campaign_id（请求参数）'
-    -- 二、接口返回所有字段
+    request_campaign_id  STRING COMMENT '调用list_targets时传入的campaign_id（请求参数）' -- 二、接口返回所有字段
     ,panel_id            STRING COMMENT '面板ID（示例：Panel-PanelPool-PC-MB-PM-merge_Region-000000000000000000000008-City337.new5-City337.new5-City337.new5-merge_PanelMeta-pmoFormal.2024H1Universe_20250214193138）'
     ,target_id           STRING COMMENT '目标人群ID（示例：705056）'
-    ,target_name         STRING COMMENT '目标人群名称（示例：F18-30）'
-    -- 三、补充溯源字段
+    ,target_name         STRING COMMENT '目标人群名称（示例：F18-30）' -- 三、补充溯源字段
     ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text  STRING COMMENT '单条目标数据的原始JSON字符串，用于问题追溯'
     ,etl_datetime        STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
@@ -314,16 +310,17 @@ PARTITIONED BY
 )
 ;
 
-drop table if exists coach_marketing_hub.ods_mz_adm_regions_list_api_df;
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_regions_list_api_df
+;
+
 CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_regions_list_api_df
 (
     -- 接口返回核心字段
     s_level             STRING COMMENT '区域层级（数字型，如0）'
     ,parent_id          STRING COMMENT '父级区域ID（空字符串表示无父级）'
     ,region_id          STRING COMMENT '区域唯一ID（如000000000000000000000000）'
-    ,region_name        STRING COMMENT '区域名称（如Global、Dongying）'
-    -- 补充溯源字段
-    ,full_request_url    STRING COMMENT '完整接口请求URL'
+    ,region_name        STRING COMMENT '区域名称（如Global、Dongying）' -- 补充溯源字段
+    ,full_request_url   STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text STRING COMMENT '单条区域数据的原始JSON字符串'
     ,etl_datetime       STRING COMMENT '数据落地时间（yyyy-MM-dd HH:mm:ss）'
 )
@@ -334,13 +331,13 @@ PARTITIONED BY
 )
 ;
 
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_tvm_spot_list_api_df
+;
 
-drop table if exists coach_marketing_hub.ods_mz_tvm_spot_list_api_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_spot_list_api_df
 (
     -- 一、接口调用参数（核心）
-    request_campaign_id  STRING COMMENT '调用spot/list时传入的campaign_id（请求参数）'
-    -- 二、接口result数组内所有字段
+    request_campaign_id  STRING COMMENT '调用spot/list时传入的campaign_id（请求参数）' -- 二、接口result数组内所有字段
     ,spid_str            STRING COMMENT '点位标识字符串'
     ,caid                STRING COMMENT '广告活动ID（数字型）'
     ,created_time        STRING COMMENT '点位创建时间（2026-01-29 15:28:10.0）'
@@ -370,8 +367,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_spot_list_api_df
     ,mm_channe_id        STRING COMMENT 'MM渠道ID'
     ,play_info           STRING COMMENT '播放信息'
     ,tag_place           STRING COMMENT '标签位置（如开始）'
-    ,multi_tag           STRING COMMENT '多标签标识（如1）'
-    -- 三、补充溯源字段
+    ,multi_tag           STRING COMMENT '多标签标识（如1）' -- 三、补充溯源字段
     ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text  STRING COMMENT 'result数组内单条点位的原始JSON数据'
     ,etl_datetime        STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
@@ -383,13 +379,14 @@ PARTITIONED BY
 )
 ;
 
-drop table if exists coach_marketing_hub.ods_mz_tvm_spot_info_api_df;
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_tvm_spot_info_api_df
+;
+
 CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_spot_info_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用spot/info时传入的campaign_id（请求参数）'
-    ,request_spid_str    STRING COMMENT '调用spot/info时传入的spid_str（请求参数）'
-    -- 二、接口result节点所有字段
+    ,request_spid_str    STRING COMMENT '调用spot/info时传入的spid_str（请求参数）' -- 二、接口result节点所有字段
     ,result_spid_str     STRING COMMENT '接口返回的点位标识字符串（result顶层字段）'
     ,caid                STRING COMMENT '广告活动ID（数字型）'
     ,created_time        STRING COMMENT '点位创建时间（2026-01-29 15:28:10.0）'
@@ -419,8 +416,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_spot_info_api_df
     ,mm_channe_id        STRING COMMENT 'MM渠道ID'
     ,play_info           STRING COMMENT '播放信息'
     ,tag_place           STRING COMMENT '标签位置（如开始）'
-    ,multi_tag           STRING COMMENT '多标签标识（如1）'
-    -- 三、补充溯源字段
+    ,multi_tag           STRING COMMENT '多标签标识（如1）' -- 三、补充溯源字段
     ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text  STRING COMMENT '接口result节点原始返回数据(JSON)'
     ,etl_datetime        STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
@@ -432,18 +428,18 @@ PARTITIONED BY
 )
 ;
 
-drop table if exists coach_marketing_hub.ods_mz_tvm_target_info_api_df;
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_tvm_target_info_api_df
+;
+
 CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_target_info_api_df
 (
     -- 一、接口调用参数（仅campaign_id）
-    request_campaign_id  STRING COMMENT '调用接口时传入的campaign_id（请求参数）'
-    -- 二、接口result节点所有字段
+    request_campaign_id  STRING COMMENT '调用接口时传入的campaign_id（请求参数）' -- 二、接口result节点所有字段
     ,result_campaign_id  STRING COMMENT '接口返回的campaign_id（result顶层字段）'
     ,target_display      STRING COMMENT '目标人群展示文本（result.target数组内字段）'
     ,update_time         STRING COMMENT '目标信息更新时间（result.target数组内字段）'
     ,target_name         STRING COMMENT '目标人群名称（result.target数组内字段）'
-    ,target_id           STRING COMMENT '目标人群ID（result.target数组内字段）'
-    -- 三、补充溯源字段
+    ,target_id           STRING COMMENT '目标人群ID（result.target数组内字段）' -- 三、补充溯源字段
     ,full_request_url    STRING COMMENT '完整接口请求URL'
     ,pre_parse_raw_text  STRING COMMENT '接口result节点原始返回数据(JSON)'
     ,etl_datetime        STRING COMMENT '数据落地时间(yyyy-MM-dd HH:mm:ss)'
@@ -552,7 +548,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_ad_campaign_weekly_report_
     ,target_freq_imp     STRING COMMENT '该时间段内达到目标频控（1-5次）的IMP总量'
 )
 COMMENT '活动周表'
-PARTITIONED BY
+PARTITIONED BY 
 (
     dt                   STRING COMMENT '分区日期（建议格式：yyyyMMdd，如20250629）'
 )
@@ -579,11 +575,11 @@ PARTITIONED BY
 )
 ;
 
-
-CREATE TABLE  coach_marketing_hub.ods_mz_user_api_df (
-    api_source     STRING COMMENT '数据来源',
-    username            STRING COMMENT '用户名',
-    passwords         STRING COMMENT '密码'
+CREATE TABLE coach_marketing_hub.ods_mz_user_api_df
+(
+    api_source  STRING COMMENT '数据来源'
+    ,username   STRING COMMENT '用户名'
+    ,passwords  STRING COMMENT '密码'
 )
 COMMENT '秒针API接口账号信息'
 ;
