@@ -120,7 +120,6 @@ CREATE TABLE if not exists coach_marketing_hub.ods_mz_tvm_basic_show_api_di (
     request_by_position     STRING COMMENT '请求参数-投放维度',
     request_by_region       STRING COMMENT '请求参数-地域维度',
     request_by_audience     STRING COMMENT '请求参数-受众维度',
-    request_platform        STRING COMMENT '请求参数-平台维度',
 
     -- ===================== 原有业务基础字段 =====================
     campaign_id             STRING COMMENT '接口返回-活动ID',
