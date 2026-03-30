@@ -136,7 +136,8 @@ def get_campaign_list() -> List[Dict]:
         sql = f"""
               select campaign_id, start_time, end_time
               from ods_mz_tvm_campaigns_list_api_df 
-              where '{DT}' between replace(start_time, '-', '') and replace(end_time, '-', '')
+              where dt = '{DT}'
+              and '{DT}' between replace(start_time, '-', '') and replace(end_time, '-', '')
               """
         print(f"[{get_etl_time()}] 📝 执行活动SQL：{sql}")
 
