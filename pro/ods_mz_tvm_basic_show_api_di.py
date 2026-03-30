@@ -36,8 +36,7 @@ DT = args['dt']
 REPORT_PARAMS = {
     "metrics": "all",
     "by_region": ["level0", "level1", "level2"],
-    "by_audience": ["overall", "stable", "target"],
-    "platform": ["pc", "pm", "mb"],
+    "by_audience": ["overall", "people", "target"],
     "by_position": ["campaign", "publisher", "spot"]
 }
 
