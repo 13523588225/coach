@@ -11,11 +11,13 @@ from typing import Dict, List
 from urllib.parse import urlencode
 from odps import ODPS, errors
 from concurrent.futures import ThreadPoolExecutor, as_completed
+# 新增：线程安全统计依赖
+from multiprocessing import Manager
 
 # ===================== 全局配置 =====================
 urllib3.disable_warnings(InsecureRequestWarning)
 
-# 1. 秒针接口配置（移除campaign_list_url，保留其他）
+# 1. 秒针接口配置
 API_CONFIG = {
     "token_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/token/get",
     "report_basic_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/reports/basic/show",
@@ -58,10 +60,6 @@ def get_etl_time() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def get_log() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-
 def date_convert(date_str: str, to_format: str) -> str:
     try:
         if to_format == "8位":
@@ -71,18 +69,6 @@ def date_convert(date_str: str, to_format: str) -> str:
     except ValueError:
         return ""
     return ""
-
-
-def is_date_in_campaign_valid(check_date: str, camp_start: str, camp_end: str) -> bool:
-    if not all([check_date, camp_start, camp_end]):
-        return False
-    try:
-        check_dt_obj = datetime.strptime(check_date, "%Y%m%d")
-        camp_start_obj = datetime.strptime(camp_start, "%Y-%m-%d")
-        camp_end_obj = datetime.strptime(camp_end, "%Y-%m-%d")
-        return camp_start_obj <= check_dt_obj <= camp_end_obj
-    except ValueError:
-        return False
 
 
 def to_string(value) -> str:
@@ -113,7 +99,7 @@ def get_tvm_api_credentials():
             record = reader[0]
             username = record["username"]
             password = record["passwords"]
-            print(f"[{get_log()}] 🔐 成功获取TVM账号：{username}")
+            print(f"[{get_etl_time()}] 🔐 成功获取TVM账号：{username}")
             return username, password
     except errors.ODPSError as e:
         raise Exception(f"查询账号失败：{str(e)}")
@@ -143,43 +129,37 @@ def get_miaozhen_token() -> str:
         raise Exception(f"获取Token失败：{str(e)}")
 
 
-# ===================== 获取活动列表（修改核心逻辑：从ODPS查询） =====================
+# ===================== 获取活动列表（极简版） =====================
 def get_campaign_list() -> List[Dict]:
     try:
         o = ODPS(project=ODPS_PROJECT)
-        # 构造查询SQL：按业务日期筛选活动
-        sql = """
+        sql = f"""
               select campaign_id, start_time, end_time
               from ods_mz_tvm_campaigns_list_api_df 
-              where args['dt'] between replace(start_time, '-', '') and replace(end_time, '-', '')
+              where '{DT}' between replace(start_time, '-', '') and replace(end_time, '-', '')
               """
-        print(f"[{get_log()}] 📝 执行SQL：{sql}")
+        print(f"[{get_etl_time()}] 📝 执行活动SQL：{sql}")
 
         valid_campaigns = []
         with o.execute_sql(sql).open_reader() as reader:
             for record in reader:
-                # 直接取值并转换字符串
                 campaign_id = to_string(record.campaign_id)
-                # 无活动ID则跳过
                 if not campaign_id:
                     continue
-                # 直接组装数据并添加
                 valid_campaigns.append({
                     "campaign_id": campaign_id,
                     "camp_start_date": to_string(record.start_time),
                     "camp_end_date": to_string(record.end_time)
                 })
 
-        print(f"✅ 有效活动数：{len(valid_campaigns)}")
+        print(f"[{get_etl_time()}] ✅ 有效活动数：{len(valid_campaigns)}")
         return valid_campaigns
-    except errors.ODPSError as e:
-        raise Exception(f"查询活动列表失败：{str(e)}")
     except Exception as e:
-        raise Exception(f"处理活动列表失败：{str(e)}")
+        raise Exception(f"查询活动列表失败：{str(e)}")
 
 
-# ===================== 解析单活动数据（严格对齐表结构） =====================
-def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
+# ===================== 解析单活动数据（新增统计参数） =====================
+def parse_single_campaign(token: str, campaign: Dict, stats: Dict) -> List[List]:
     campaign_data = []
     camp_id = campaign["campaign_id"]
     camp_start = campaign["camp_start_date"]
@@ -188,12 +168,12 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
     if not report_date_10bit:
         return campaign_data
 
-    # 无platform循环
+    # 三层维度循环 = 每个循环为一个请求批次
     for by_region in REPORT_PARAMS["by_region"]:
         for by_audience in REPORT_PARAMS["by_audience"]:
             for by_position in REPORT_PARAMS["by_position"]:
                 try:
-                    # 请求参数
+                    # 1. 构建请求参数
                     request_params = {
                         "access_token": token,
                         "campaign_id": camp_id,
@@ -203,9 +183,14 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                         "by_audience": by_audience,
                         "by_position": by_position
                     }
-                    full_request_url = f"{API_CONFIG['report_basic_url']}?{urlencode(request_params)}"
+                    full_url = f"{API_CONFIG['report_basic_url']}?{urlencode(request_params)}"
 
-                    # 接口请求
+                    # 2. 记录批次开始时间
+                    req_start_time = time.time()
+                    req_start_str = get_etl_time()
+                    print(f"[{req_start_str}] 🚀 请求批次开始 | URL：{full_url}")
+
+                    # 3. 发送接口请求
                     resp = SESSION.get(
                         API_CONFIG['report_basic_url'],
                         params=request_params,
@@ -215,45 +200,52 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                     resp.raise_for_status()
                     raw_data = resp.json()
 
-                    if raw_data.get("error_code") != 0:
-                        print(f"⚠️ 接口错误：{full_request_url}")
+                    # 4. 计算单次请求耗时
+                    cost_time = round(time.time() - req_start_time, 3)
+                    error_code = raw_data.get("error_code", -1)
+
+                    # ===================== 统计累加（核心） =====================
+                    stats["total_requests"] += 1
+                    stats["total_cost"] += cost_time
+
+                    # 5. 仅处理 error_code = 0
+                    if error_code != 0:
+                        stats["fail_requests"] += 1
+                        print(
+                            f"[{get_etl_time()}] ⚠️ 批次请求失败 | 耗时：{cost_time}s | 错误码：{error_code} | URL：{full_url}")
                         time.sleep(API_CONFIG["request_interval"])
                         continue
 
-                    result = raw_data.get("result", {})
-                    items = result.get("items", [])
+                    # 6. 成功解析数据
+                    stats["success_requests"] += 1
+                    print(f"[{get_etl_time()}] ✅ 批次请求成功 | 耗时：{cost_time}s | URL：{full_url}")
+                    items = raw_data.get("result", {}).get("items", [])
                     if not items:
                         time.sleep(API_CONFIG["request_interval"])
                         continue
 
-                    etl_datetime_str = get_etl_time()
+                    etl_time = get_etl_time()
                     for item in items:
                         if not isinstance(item, dict):
                             continue
                         attributes = item.get("attributes", {})
                         metrics = item.get("metrics", {}) or {}
+                        raw_text = to_string(
+                            json.dumps({"attributes": attributes, "metrics": metrics}, ensure_ascii=False))
 
-                        # 原始数据
-                        pre_parse_raw_text = to_string(
-                            json.dumps({"attributes": attributes, "metrics": metrics}, ensure_ascii=False)
-                        )
-
-                        # ===================== 严格对齐最新表结构字段顺序 =====================
+                        # 对齐表结构写入数据
                         write_row = [
-                            # 1. 请求参数
                             to_string(request_params["campaign_id"]),
                             to_string(request_params["date"]),
                             to_string(request_params["metrics"]),
                             to_string(request_params["by_position"]),
                             to_string(request_params["by_region"]),
                             to_string(request_params["by_audience"]),
-
-                            # 2. 业务基础字段
-                            to_string(result.get("campaignId")),
+                            to_string(raw_data.get("result", {}).get("campaignId")),
                             to_string(camp_start),
                             to_string(camp_end),
-                            to_string(result.get("date")),  # result_date 对齐表结构
-                            to_bigint(result.get("version")),
+                            to_string(raw_data.get("result", {}).get("date")),
+                            to_bigint(raw_data.get("result", {}).get("version")),
                             to_string(attributes.get("publisher_id")),
                             to_string(attributes.get("spot_id")),
                             to_string(attributes.get("spot_id_str")),
@@ -263,8 +255,6 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                             to_string(attributes.get("target_def")),
                             to_string(attributes.get("target_name")),
                             to_string(attributes.get("target_id")),
-
-                            # 3. 核心指标
                             to_bigint(metrics.get("imp_acc")),
                             to_bigint(metrics.get("clk_acc")),
                             to_bigint(metrics.get("uim_acc")),
@@ -277,23 +267,19 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
                             to_bigint(metrics.get("clk_avg_day")),
                             to_bigint(metrics.get("uim_avg_day")),
                             to_bigint(metrics.get("ucl_avg_day")),
-
-                            # 4. 24小时曝光
-                            *[to_bigint(metrics.get(f"imp_{hour}")) for hour in HOUR_FIELDS],
-                            # 5. 24小时点击
-                            *[to_bigint(metrics.get(f"clk_{hour}")) for hour in HOUR_FIELDS],
-
-                            # 6. 新增字段
-                            to_string(full_request_url),
-                            pre_parse_raw_text,
-                            to_string(etl_datetime_str)
+                            *[to_bigint(metrics.get(f"imp_{h}")) for h in HOUR_FIELDS],
+                            *[to_bigint(metrics.get(f"clk_{h}")) for h in HOUR_FIELDS],
+                            to_string(full_url),
+                            raw_text,
+                            to_string(etl_time)
                         ]
                         campaign_data.append(write_row)
 
                     time.sleep(API_CONFIG["request_interval"])
+
                 except Exception as e:
-                    print(f"❌ 请求失败：{full_request_url}，错误：{str(e)}")
-                    traceback.print_exc()
+                    stats["fail_requests"] += 1
+                    print(f"[{get_etl_time()}] ❌ 批次异常 | URL：{full_url} | 错误：{str(e)}")
                     time.sleep(API_CONFIG["request_interval"])
                     continue
     return campaign_data
@@ -302,7 +288,7 @@ def parse_single_campaign(token: str, campaign: Dict) -> List[List]:
 # ===================== 写入ODPS =====================
 def write_to_odps_partition(table_name: str, data: List[List]):
     if not data:
-        print(f"⚠️ 无数据写入")
+        print(f"[{get_etl_time()}] ⚠️ 无数据写入")
         return
 
     o = ODPS(project=ODPS_PROJECT)
@@ -316,60 +302,76 @@ def write_to_odps_partition(table_name: str, data: List[List]):
     batch_num = (total_count + batch_size - 1) // batch_size
 
     try:
-        # 清空旧分区
         if table.exist_partition(partition_spec):
             o.execute_sql(f"ALTER TABLE {table_name} DROP PARTITION ({partition_spec})")
-            print(f"✅ 清空分区：{DT}")
+            print(f"[{get_etl_time()}] ✅ 清空旧分区：{DT}")
 
-        print(f"📊 总条数：{total_count}，分{batch_num}批次写入")
-        total_time = 0
+        print(f"[{get_etl_time()}] 📊 总数据量：{total_count} 条，分 {batch_num} 批次写入")
+        total_cost = 0
         for i in range(batch_num):
             start = time.time()
             batch_data = data[i * batch_size: (i + 1) * batch_size]
             with table.open_writer(partition=partition_spec, create_partition=True) as writer:
                 writer.write(batch_data)
             cost = round(time.time() - start, 2)
-            total_time += cost
-            print(f"💾 批次{i + 1}完成，条数：{len(batch_data)}，耗时：{cost}s")
+            total_cost += cost
+            print(f"[{get_etl_time()}] 💾 写入批次 {i + 1} | 条数：{len(batch_data)} | 耗时：{cost}s")
 
-        print(f"✅ 写入完成，总耗时：{total_time}s")
+        print(f"[{get_etl_time()}] ✅ 全部写入完成 | 写入总耗时：{total_cost}s")
     except errors.ODPSError as e:
-        raise Exception(f"写入失败：{str(e)}")
+        raise Exception(f"写入ODPS失败：{str(e)}")
 
 
-# ===================== 主流程 =====================
+# ===================== 主流程（新增统计初始化） =====================
 def main():
     try:
-        start_time = time.time()
-        print(f"===== 任务开始 | 表：{TARGET_TABLE} | 分区：{DT} =====")
+        total_start = time.time()
+        print(f"===== [{get_etl_time()}] 任务开始 | 表：{TARGET_TABLE} | 分区：{DT} =====")
+
+        # 初始化线程安全的请求统计
+        manager = Manager()
+        request_stats = manager.dict({
+            "total_requests": 0,  # 总请求数
+            "success_requests": 0,  # 成功请求数
+            "fail_requests": 0,  # 失败请求数
+            "total_cost": 0.0  # 接口请求总耗时（核心）
+        })
 
         # 1. 获取Token
         token = get_miaozhen_token()
-        # 2. 获取活动列表（修改：不再传token）
+        # 2. 获取活动列表
         campaign_list = get_campaign_list()
         if not campaign_list:
-            print("⚠️ 无有效活动")
+            print(f"[{get_etl_time()}] ⚠️ 无有效活动，任务结束")
             return
 
-        # 3. 并行处理
+        # 3. 并行处理（传入统计参数）
         all_data = []
         with ThreadPoolExecutor(max_workers=PARALLEL_CONFIG["max_workers"]) as executor:
-            futures = [executor.submit(parse_single_campaign, token, c) for c in campaign_list]
+            futures = [executor.submit(parse_single_campaign, token, c, request_stats) for c in campaign_list]
             for future in as_completed(futures):
                 try:
                     all_data.extend(future.result())
                 except Exception as e:
-                    print(f"❌ 解析失败：{str(e)}")
+                    print(f"[{get_etl_time()}] ❌ 活动解析失败：{str(e)}")
 
         # 4. 写入数据
         write_to_odps_partition(TARGET_TABLE, all_data)
 
         gc.enable()
         gc.collect()
-        print(f"===== 任务完成 | 总耗时：{round(time.time() - start_time, 2)}s =====")
+        total_cost = round(time.time() - total_start, 2)
+
+        # ===================== 打印最终统计（核心输出） =====================
+        print(f"\n===== [{get_etl_time()}] 📊 接口请求统计汇总 =====")
+        print(f"总请求次数：{request_stats['total_requests']} 次")
+        print(f"请求成功次数：{request_stats['success_requests']} 次")
+        print(f"请求失败次数：{request_stats['fail_requests']} 次")
+        print(f"全部URL请求总耗时：{round(request_stats['total_cost'], 3)} 秒")
+        print(f"===== 任务全部完成 | 总运行耗时：{total_cost}s =====")
 
     except Exception as e:
-        print(f"❌ 任务失败：{str(e)}")
+        print(f"[{get_etl_time()}] ❌ 任务执行失败：{str(e)}")
         traceback.print_exc()
         raise
 
