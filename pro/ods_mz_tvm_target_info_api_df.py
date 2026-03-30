@@ -17,7 +17,7 @@ API_CONFIG = {
     "token_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/token/get",
     "campaign_target_info_url": "https://api-tvmonitor.cn.miaozhen.com/monitortv/v1/campaign/target/info",
     "timeout": 30,
-    "request_interval": 0.1
+    "request_interval": 0.2
 }
 
 # ODPS配置
@@ -191,14 +191,12 @@ def write_to_odps(table_name: str, data: List[List], dt: str):
 def main():
     """脚本主执行流程"""
     try:
-        # 解析调度参数
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--dt', required=True, help='分区日期')
-        args = parser.parse_args()
+        # 字典格式获取dt参数
+        dt = args['dt']
 
         # 核心流程
         token = get_miaozhen_token()
-        campaign_ids = get_campaign_ids(args.dt)
+        campaign_ids = get_campaign_ids(dt)
 
         if not campaign_ids:
             raise Exception("无有效campaign_id，任务终止")
@@ -215,7 +213,7 @@ def main():
             t["pre_parse_raw_text"], t["etl_datetime"]
         ] for t in all_data]
 
-        write_to_odps(TABLE_NAMES["target_info"], write_data, args.dt)
+        write_to_odps(TABLE_NAMES["target_info"], write_data, dt)
 
     except Exception as e:
         print(f"[{get_log()}] 任务失败：{str(e)}")

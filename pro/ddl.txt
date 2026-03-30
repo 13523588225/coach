@@ -1,8 +1,8 @@
 -- API表结构
-DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_campaigns_list_api_df
+DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_campaigns_list_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_campaigns_list_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_campaigns_list_api_df
 (
     campaign_id         STRING COMMENT '活动ID'
     ,start_date         STRING COMMENT '活动开始日期'
@@ -29,8 +29,9 @@ PARTITIONED BY
     dt                  STRING COMMENT '分区yyyyMMdd'
 )
 ;
-
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_basic_show_api_di
+DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di
+;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di
 (
     campaign_id          STRING COMMENT '活动ID'
     ,campaign_start_date STRING COMMENT '活动开始日期'
@@ -118,7 +119,9 @@ PARTITIONED BY
 )
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_basic_show_api_di
+DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di
+;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di
 (
     -- ===================== 请求参数（核心需求） =====================
     request_campaign_id  STRING COMMENT '请求参数-活动ID'
@@ -217,10 +220,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_list_spots_api_df
+DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_list_spots_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_list_spots_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_spots_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用list_spots时传入的campaign_id（请求参数）' -- 二、接口返回所有字段（嵌套字段序列化为JSON字符串）
@@ -253,10 +256,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_show_spot_api_df
+DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_show_spot_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df
 (
     -- 一、接口调用参数（核心双参数）
     request_campaign_id  STRING COMMENT '调用show_spot时传入的campaign_id（请求参数）'
@@ -289,10 +292,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_list_targets_api_df
+DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_list_targets_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_list_targets_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_targets_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用list_targets时传入的campaign_id（请求参数）' -- 二、接口返回所有字段
@@ -310,10 +313,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_regions_list_api_df
+DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_regions_list_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df
 (
     -- 接口返回核心字段
     s_level             STRING COMMENT '区域层级（数字型，如0）'
@@ -331,10 +334,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_tvm_spot_list_api_df
+DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_list_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_spot_list_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_list_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用spot/list时传入的campaign_id（请求参数）' -- 二、接口result数组内所有字段
@@ -379,10 +382,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_tvm_spot_info_api_df
+DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_spot_info_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用spot/info时传入的campaign_id（请求参数）'
@@ -428,10 +431,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_tvm_target_info_api_df
+DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_tvm_target_info_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_target_info_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_target_info_api_df
 (
     -- 一、接口调用参数（仅campaign_id）
     request_campaign_id  STRING COMMENT '调用接口时传入的campaign_id（请求参数）' -- 二、接口result节点所有字段
@@ -452,7 +455,7 @@ PARTITIONED BY
 ;
 
 -- OSS 表结构
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_ad_campaign_monthly_report_oss_di
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_monthly_report_oss_di
 (
     fiscal_year          STRING COMMENT '财年（如FY26）'
     ,fiscal_period       STRING COMMENT '财期（如P1）'
@@ -500,8 +503,8 @@ PARTITIONED BY
 )
 ;
 
--- drop table coach_marketing_hub.ods_mz_ad_campaign_weekly_report_oss_di;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_ad_campaign_weekly_report_oss_di
+-- drop table coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_report_oss_di;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_report_oss_di
 (
     fiscal_year          STRING COMMENT '财年（如FY26）'
     ,fiscal_period       STRING COMMENT '财期（如P1）'
@@ -555,7 +558,7 @@ PARTITIONED BY
 ;
 
 -- 手工表
-CREATE TABLE IF NOT EXISTS coach_marketing_hub.dim_fiscal_date
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.dim_fiscal_date
 (
     FSY_ID         STRING COMMENT '主键ID'
     ,FSY_CODE      STRING COMMENT '财周编码（年份+周数，如20101代表2010年第1周）'
@@ -575,7 +578,7 @@ PARTITIONED BY
 )
 ;
 
-CREATE TABLE coach_marketing_hub.ods_mz_user_api_df
+CREATE TABLE coach_marketing_hub_dev.ods_mz_user_api_df
 (
     api_source  STRING COMMENT '数据来源'
     ,username   STRING COMMENT '用户名'
