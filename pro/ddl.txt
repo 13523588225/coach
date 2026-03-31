@@ -389,7 +389,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用spot/info时传入的campaign_id（请求参数）'
-    ,request_spid_str    STRING COMMENT '调用spot/info时传入的spid_str（请求参数）' -- 二、接口result节点所有字段
+    ,request_spid_str    STRING COMMENT '调用spot/info时传入的spid_str（请求参数）'
     ,result_spid_str     STRING COMMENT '接口返回的点位标识字符串（result顶层字段）'
     ,caid                STRING COMMENT '广告活动ID（数字型）'
     ,created_time        STRING COMMENT '点位创建时间（2026-01-29 15:28:10.0）'
