@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-秒针区域列表采集脚本 - 终极适配版
-严格适配官方API：limit=偏移量,获取条数
-无无限循环、无参数错误、稳定写入ODPS
+秒针区域列表采集脚本 - 最终终极版
+适配规则：limit=偏移量,1999
+分页序列：0,1999 → 2000,1999 → 4000,1999
+最大分页：20页 | 偏移步长：2000
 """
 import requests
 import json
 import time
 import urllib3
+import argparse
 from datetime import datetime
 from typing import Dict, List, Optional
 from odps import ODPS, errors
@@ -16,7 +18,7 @@ from urllib.parse import urlencode
 # ===================== 全局配置 =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 1. API配置（严格适配你提供的接口格式）
+# 1. API核心配置
 API_CONFIG = {
     "token_url": "https://api.cn.miaozhen.com/oauth/token",
     "regions_url": "https://api.cn.miaozhen.com/cms/v1/regions/list",
@@ -30,11 +32,12 @@ API_CONFIG = {
     "timeout": 30,
     "interval": 0.2,
     "lang_list": ["en", "cn"],
-    "page_size": 1999,    # ✅ 仅修复这里：2000 → 1999（匹配你的API注释）
-    "max_page": 10      # 最大分页兜底，防死循环
+    "page_size": 1999,    # 固定每页条数
+    "max_page": 20,       # 最大分页20次
+    "offset_step": 2000   # 偏移量每次+2000（核心配置）
 }
 
-# 2. ODPS全局配置
+# 2. ODPS配置
 ODPS_PROJECT = ODPS().project
 TARGET_TABLE_NAME = "ods_mz_adm_regions_list_api_df"
 
@@ -124,7 +127,7 @@ def get_access_token() -> Optional[str]:
         return None
 
 
-# ===================== 核心采集（100%适配你的API格式） =====================
+# ===================== 核心采集函数 =====================
 def get_regions_list(token: str) -> List[Dict]:
     if not token:
         raise Exception("Token为空")
@@ -140,13 +143,13 @@ def get_regions_list(token: str) -> List[Dict]:
 
         while True:
             page_num += 1
-            # 兜底保护
+            # 最大20页兜底
             if page_num > API_CONFIG["max_page"]:
-                print(f"⚠️ 超过最大分页，终止【{lang}】采集")
+                print(f"⚠️ 达到最大分页{API_CONFIG['max_page']}页，终止【{lang}】采集")
                 break
 
             try:
-                # ✅ 终极适配：和你提供的URL格式完全一致 limit=offset,count
+                # 最终适配分页参数
                 params = {
                     "access_token": token,
                     "lang": lang,
@@ -155,7 +158,7 @@ def get_regions_list(token: str) -> List[Dict]:
                 headers = {"Content-Type": "application/json"}
                 req_url = f"{API_CONFIG['regions_url']}?{urlencode(params)}"
 
-                # 请求接口
+                # 发送请求
                 resp = requests.get(
                     API_CONFIG["regions_url"],
                     params=params,
@@ -170,9 +173,9 @@ def get_regions_list(token: str) -> List[Dict]:
                     raise Exception("返回数据非数组")
 
                 current_count = len(data_list)
-                print(f"[{get_log()}] 📄 【{lang}】第{page_num}页：获取{current_count}条")
+                print(f"[{get_log()}] 📄 【{lang}】第{page_num}页 | limit={offset},{page_size} | 获取{current_count}条")
 
-                # 数据标准化
+                # 数据格式化
                 for item in data_list:
                     if isinstance(item, dict):
                         all_data.append({
@@ -186,13 +189,13 @@ def get_regions_list(token: str) -> List[Dict]:
                             "etl_datetime": to_string(etl_time)
                         })
 
-                # ✅ 终止条件：无数据 或 不足一页
+                # 终止条件：无数据 或 不足一页
                 if current_count == 0 or current_count < page_size:
                     print(f"[{get_log()}] 🎯 【{lang}】采集完成，共{page_num}页")
                     break
 
-                # 偏移量递增
-                offset += page_size
+                # 核心：偏移量+2000
+                offset += API_CONFIG["offset_step"]
                 time.sleep(API_CONFIG["interval"])
 
             except Exception as e:
@@ -206,6 +209,7 @@ def get_regions_list(token: str) -> List[Dict]:
 def main():
     print(f"🚀 脚本启动：{get_etl_datetime()}")
     try:
+        # 执行业务逻辑
         token = get_access_token()
         if not token:
             return
@@ -214,14 +218,14 @@ def main():
         if not data:
             return
 
-        # 格式化写入
+        # 数据格式化
         write_data = [[
             i["request_lang"], i["s_level"], i["parent_id"],
             i["region_id"], i["region_name"], i["full_request_url"],
             i["pre_parse_raw_text"], i["etl_datetime"]
         ] for i in data]
 
-        # 👉 100%保留你的代码，未做任何修改
+        # 写入ODPS
         write_to_odps(TARGET_TABLE_NAME, write_data, args['dt'])
         print(f"\n🎉 脚本执行成功！")
 
