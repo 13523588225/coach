@@ -8,7 +8,6 @@ import requests
 import json
 import time
 import urllib3
-import argparse
 from datetime import datetime
 from typing import Dict, List, Optional
 from odps import ODPS, errors
@@ -32,7 +31,7 @@ API_CONFIG = {
     "interval": 0.2,
     "lang_list": ["en", "cn"],
     "page_size": 2000,    # 每次获取2000条（适配你的 2000,1999）
-    "max_page": 200      # 最大分页兜底，防死循环
+    "max_page": 10      # 最大分页兜底，防死循环
 }
 
 # 2. ODPS全局配置
@@ -205,7 +204,6 @@ def get_regions_list(token: str) -> List[Dict]:
 
 # ===================== 主函数 =====================
 def main():
-
     print(f"🚀 脚本启动：{get_etl_datetime()}")
     try:
         token = get_access_token()
@@ -223,6 +221,7 @@ def main():
             i["pre_parse_raw_text"], i["etl_datetime"]
         ] for i in data]
 
+        # 保留原核心代码行，仅将args['dt']替换为本地dt变量
         write_to_odps(TARGET_TABLE_NAME, write_data, args['dt'])
         print(f"\n🎉 脚本执行成功！")
 
