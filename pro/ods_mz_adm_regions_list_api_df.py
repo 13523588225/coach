@@ -8,15 +8,16 @@ import requests
 import json
 import time
 import urllib3
+import argparse  # 新增：解析命令行dt参数
 from datetime import datetime
 from typing import Dict, List, Optional
-from odps import ODPS, errors  # 补充导入errors
-from urllib.parse import urlencode  # 导入urlencode用于拼接完整URL
+from odps import ODPS, errors
+from urllib.parse import urlencode
 
 # ===================== 全局配置 =====================
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# 1. API配置（清空硬编码的账号密码）
+# 1. API配置（新增lang列表、分页步长）
 API_CONFIG = {
     "token_url": "https://api.cn.miaozhen.com/oauth/token",
     "regions_url": "https://api.cn.miaozhen.com/cms/v1/regions/list",
@@ -28,12 +29,14 @@ API_CONFIG = {
         "client_secret": "e65798fb-85d6-4c56-aa19-a2435e8fef18"
     },
     "timeout": 30,
-    "interval": 0.2
+    "interval": 0.2,
+    "lang_list": ["en", "cn"],  # 新增：要采集的语言列表
+    "page_step": 2000  # 新增：分页步长（每次请求2000条）
 }
 
 # 2. ODPS全局配置（需替换为实际项目名）
 ODPS_PROJECT = ODPS().project
-TARGET_TABLE_NAME = "ods_mz_adm_regions_list_api_df"  # 目标表名
+TARGET_TABLE_NAME = "ods_mz_adm_regions_list_api_df"  # 目标表名（需新增lang字段）
 
 
 # ===================== 工具函数 =====================
@@ -85,7 +88,7 @@ def write_to_odps(table_name: str, data: List[List], dt: str):
         print(f"⚠️ {table_name} 无数据可写入")
         return
 
-    o = ODPS(project=ODPS_PROJECT)  # 按要求初始化
+    o = ODPS(project=ODPS_PROJECT)
     if not o.exist_table(table_name):
         raise Exception(f"表{table_name}不存在")
 
@@ -135,66 +138,93 @@ def get_access_token() -> Optional[str]:
         return None
 
 
-# ===================== 区域列表采集（新增full_request_url字段） =====================
+# ===================== 区域列表采集（核心修改：多语言+分页获取所有数据） =====================
 def get_regions_list(token: str) -> List[Dict]:
-    """采集区域列表数据（URL参数传递Token）"""
+    """采集区域列表数据（支持多语言、分页获取所有数据）"""
     if not token:
         raise Exception("认证Token为空，无法调用接口")
 
-    try:
-        params = {"access_token": token}
-        headers = {"Content-Type": "application/json"}
+    all_regions_data = []  # 存储所有语言+所有分页的最终数据
+    etl_datetime = get_etl_datetime()  # 统一ETL时间戳
 
-        # 拼接完整接口请求URL
-        full_request_url = f"{API_CONFIG['regions_url']}?{urlencode(params)}"
+    # 遍历所有语言（en/cn）
+    for lang in API_CONFIG["lang_list"]:
+        offset = 0  # 分页偏移量，从0开始
+        step = API_CONFIG["page_step"]
+        print(f"\n[{get_log()}] 📢 开始采集【{lang}】语言的区域数据（分页步长：{step}）")
 
-        resp = requests.get(
-            API_CONFIG["regions_url"],
-            params=params,
-            headers=headers,
-            timeout=API_CONFIG["timeout"],
-            verify=False
-        )
-        resp.raise_for_status()
-        regions_data = resp.json()
+        while True:
+            try:
+                # 构造请求参数（包含token、lang、limit分页）
+                params = {
+                    "access_token": token,
+                    "lang": lang,
+                    "limit": f"{offset},{step}"
+                }
+                headers = {"Content-Type": "application/json"}
 
-        if not isinstance(regions_data, list):
-            raise Exception(f"区域列表返回格式异常（非数组），返回数据：{regions_data}")
+                # 拼接完整请求URL（包含所有参数）
+                full_request_url = f"{API_CONFIG['regions_url']}?{urlencode(params)}"
 
-        etl_datetime = get_etl_datetime()
-        standard_regions_list = []
+                # 发送分页请求
+                resp = requests.get(
+                    API_CONFIG["regions_url"],
+                    params=params,
+                    headers=headers,
+                    timeout=API_CONFIG["timeout"],
+                    verify=False
+                )
+                resp.raise_for_status()
+                page_regions = resp.json()
 
-        # 解析数据
-        for idx, region in enumerate(regions_data):
-            if not isinstance(region, dict):
-                print(f"⚠️ 第{idx + 1}条区域数据非字典格式，跳过：{region}")
-                continue
+                # 校验返回格式
+                if not isinstance(page_regions, list):
+                    raise Exception(f"【{lang}】第{offset//step + 1}页返回非数组：{page_regions}")
 
-            standard_region = {
-                "level": to_string(region.get("level")),
-                "parent_id": to_string(region.get("parent_id")),
-                "region_id": to_string(region.get("region_id")),
-                "region_name": to_string(region.get("region_name")),
-                "full_request_url": to_string(full_request_url),  # 新增字段：完整接口请求URL
-                "pre_parse_raw_text": to_string(json.dumps(region, ensure_ascii=False)),
-                "etl_datetime": to_string(etl_datetime)
-            }
-            standard_regions_list.append(standard_region)
+                page_data_len = len(page_regions)
+                print(f"[{get_log()}] 📄 【{lang}】第{offset//step + 1}页：获取{page_data_len}条数据（offset={offset}）")
 
-        time.sleep(API_CONFIG["interval"])
-        print(f"✅ 成功解析{len(standard_regions_list)}条有效区域数据（接口总计返回{len(regions_data)}条）")
-        return standard_regions_list
+                # 解析当前页数据
+                for idx, region in enumerate(page_regions):
+                    if not isinstance(region, dict):
+                        print(f"⚠️ 【{lang}】第{offset//step + 1}页第{idx+1}条非字典，跳过：{region}")
+                        continue
 
-    except requests.exceptions.HTTPError as e:
-        error_detail = f"HTTP错误 {e.response.status_code}：{e.response.text}"
-        raise Exception(f"接口调用失败：{error_detail}")
-    except Exception as e:
-        raise Exception(f"采集区域列表失败：{str(e)}")
+                    # 标准化数据（新增lang字段）
+                    standard_region = {
+                        "level": to_string(region.get("level")),
+                        "parent_id": to_string(region.get("parent_id")),
+                        "region_id": to_string(region.get("region_id")),
+                        "region_name": to_string(region.get("region_name")),
+                        "lang": to_string(lang),  # 新增：语言标识
+                        "full_request_url": to_string(full_request_url),  # 含lang+limit的完整URL
+                        "pre_parse_raw_text": to_string(json.dumps(region, ensure_ascii=False)),
+                        "etl_datetime": to_string(etl_datetime)
+                    }
+                    all_regions_data.append(standard_region)
+
+                # 分页终止条件：当前页数据量 < 步长 → 无更多数据
+                if page_data_len < step:
+                    print(f"[{get_log()}] 🎯 【{lang}】语言采集完成，累计{len(all_regions_data)}条（全局）")
+                    break
+
+                # 偏移量累加，准备下一页
+                offset += step
+                time.sleep(API_CONFIG["interval"])  # 请求间隔，避免高频
+
+            except requests.exceptions.HTTPError as e:
+                error_detail = f"【{lang}】第{offset//step + 1}页HTTP错误 {e.response.status_code}：{e.response.text}"
+                raise Exception(f"接口调用失败：{error_detail}")
+            except Exception as e:
+                raise Exception(f"【{lang}】语言采集失败：{str(e)}")
+
+    print(f"\n✅ 所有语言采集完成，总计有效数据：{len(all_regions_data)}条")
+    return all_regions_data
 
 
-# ===================== 主流程 =====================
+# ===================== 主流程（新增dt参数解析） =====================
 def main():
-    """脚本主入口"""
+
     print(f"🚀 开始执行秒针区域列表采集脚本（{get_etl_datetime()}）")
 
     try:
@@ -204,32 +234,34 @@ def main():
             print("⚠️ Token获取失败，任务终止")
             return
 
-        # 2. 采集数据
+        # 2. 采集多语言+全量分页数据
         regions_list_data = get_regions_list(token)
         if not regions_list_data:
             print("⚠️ 未采集到任何有效区域数据，任务终止")
             return
 
-        # 3. 格式化数据为List[List]（适配write_to_odps函数要求，新增full_request_url字段）
+        # 3. 格式化数据（新增lang字段）
         regions_write_data = [
             [
                 t["level"],
                 t["parent_id"],
                 t["region_id"],
                 t["region_name"],
-                t["full_request_url"],  # 新增字段写入
+                t["lang"],  # 新增lang字段写入
+                t["full_request_url"],
                 t["pre_parse_raw_text"],
                 t["etl_datetime"]
             ] for t in regions_list_data
         ]
 
-        # 4. 调用通用ODPS写入函数
+        # 4. 写入ODPS
         write_to_odps(TARGET_TABLE_NAME, regions_write_data, args['dt'])
 
-        print(f"✅ 脚本执行完成（{get_etl_datetime()}）")
+        print(f"\n✅ 脚本执行完成（{get_etl_datetime()}）")
 
     except Exception as e:
-        print(f"❌ 脚本执行失败：{str(e)}")
+        print(f"\n❌ 脚本执行失败：{str(e)}")
+        raise  # 抛出异常，便于调度平台感知
 
 
 if __name__ == "__main__":
