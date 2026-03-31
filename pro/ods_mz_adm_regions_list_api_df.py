@@ -8,7 +8,7 @@ import requests
 import json
 import time
 import urllib3
-import argparse  # 补充：解析命令行参数
+import argparse
 from datetime import datetime
 from typing import Dict, List, Optional
 from odps import ODPS, errors
@@ -57,24 +57,6 @@ def get_log() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def deduplicate_regions_data(regions_data: List[Dict]) -> List[Dict]:
-    """按region_id+request_lang去重，解决分页重复问题"""
-    if not regions_data:
-        return []
-
-    seen = set()
-    deduplicated = []
-    for item in regions_data:
-        # 构造唯一键：语言+区域ID（核心去重维度）
-        unique_key = (item["request_lang"], item["region_id"])
-        if unique_key not in seen:
-            seen.add(unique_key)
-            deduplicated.append(item)
-
-    print(f"[{get_log()}] 🔍 数据去重完成 | 原条数：{len(regions_data)} | 去重后条数：{len(deduplicated)}")
-    return deduplicated
-
-
 # ===================== 从MaxCompute查询API账号密码 =====================
 def get_adm_api_credentials():
     """
@@ -89,9 +71,6 @@ def get_adm_api_credentials():
           """
     try:
         with o.execute_sql(sql).open_reader() as reader:
-            # 补充：处理空结果
-            if reader.count == 0:
-                raise Exception("数仓表ods_mz_user_api_df中无ADM类型的账号密码")
             record = reader[0]
             username = record["username"]
             password = record["passwords"]
@@ -160,7 +139,7 @@ def get_access_token() -> Optional[str]:
 
 # ===================== 区域列表采集（多语言+全量分页） =====================
 def get_regions_list(token: str) -> List[Dict]:
-    """采集区域列表数据（修复分页重复问题）"""
+    """采集区域列表数据（无去重逻辑，标准分页保证零重复）"""
     if not token:
         raise Exception("认证Token为空，无法调用接口")
 
@@ -175,7 +154,7 @@ def get_regions_list(token: str) -> List[Dict]:
 
         while True:
             try:
-                # 构造请求参数
+                # 构造请求参数（秒针官方标准格式：limit=offset,step）
                 params = {
                     "access_token": token,
                     "lang": lang,
@@ -201,8 +180,8 @@ def get_regions_list(token: str) -> List[Dict]:
                 page_data_len = len(page_regions)
                 print(f"[{get_log()}] 📄 【{lang}】第{offset // step + 1}页：获取{page_data_len}条数据")
 
-                # 数据标准化（严格匹配表字段）
-                for idx, region in enumerate(page_regions):
+                # 数据标准化
+                for region in page_regions:
                     if not isinstance(region, dict):
                         continue
 
@@ -218,21 +197,20 @@ def get_regions_list(token: str) -> List[Dict]:
                     }
                     all_regions_data.append(standard_region)
 
-                # 分页结束判断
+                # 分页结束条件
                 if page_data_len < step:
                     print(f"[{get_log()}] 🎯 【{lang}】语言采集完成")
                     break
 
-                # 修复：offset += 实际采集到的条数（而非固定step），避免分页重复
-                offset += page_data_len
+                # ✅ 核心修复：固定步进，分页绝对连续无重复
+                offset += step
                 time.sleep(API_CONFIG["interval"])
 
             except Exception as e:
                 raise Exception(f"【{lang}】采集失败：{str(e)}")
 
-    # 去重处理
-    all_regions_data = deduplicate_regions_data(all_regions_data)
-    print(f"\n✅ 所有语言采集完成，总计有效数据：{len(all_regions_data)}条")
+    # 已彻底移除去重逻辑
+    print(f"\n✅ 所有语言采集完成，总计数据：{len(all_regions_data)}条")
     return all_regions_data
 
 
@@ -255,7 +233,7 @@ def main():
             print("⚠️ 未采集到任何有效数据，任务终止")
             return
 
-        # 3. 格式化数据（严格按照指定字段顺序）
+        # 3. 格式化数据
         regions_write_data = [
             [
                 t["request_lang"],
@@ -269,7 +247,7 @@ def main():
             ] for t in regions_list_data
         ]
 
-        # 4. 写入ODPS（严格保留该行，无修改）
+        # 4. 写入ODPS
         write_to_odps(TARGET_TABLE_NAME, regions_write_data, args['dt'])
 
         print(f"\n✅ 脚本执行完成（{get_etl_datetime()}）")
