@@ -61,10 +61,6 @@ def get_tvm_api_credentials() -> tuple:
 
 # ===================== ODPS数据写入（分批追加+原子性保证） =====================
 def write_to_odps(table_name: str, data: List[List], dt: str):
-    """
-    写入ODPS表（追加模式）+ 记录写入耗时
-    核心保证：批次数据原子性写入（要么全部成功，要么全部失败），避免部分写入
-    """
     if not data:
         print(f"⚠️ {table_name} 无数据写入")
         return
@@ -78,15 +74,10 @@ def write_to_odps(table_name: str, data: List[List], dt: str):
     partition_spec = f"dt='{dt}'"
 
     try:
-        # 追加写入数据（create_partition=True：分区不存在则自动创建）
         with table.open_writer(partition=partition_spec, create_partition=True) as writer:
-            # writer.write是原子操作：要么全部写入成功，要么全部失败
             writer.write(data)
-
-        # 打印写入耗时
         log_cost_time(f"MaxCompute写入完成", write_start, f"表={table_name}，成功写入={len(data)}条")
     except Exception as e:
-        # 写入失败直接抛异常，终止任务并提示，避免数据不一致
         raise Exception(f"批次写入失败（条数={len(data)}），错误详情：{str(e)}")
 
 
@@ -116,9 +107,6 @@ def get_miaozhen_token() -> str:
 
 
 def get_campaign_spid_pairs(dt: str) -> List[Tuple[str, str]]:
-    """
-    从ODPS表查询指定dt分区的campaign_id + spid_str组合
-    """
     start = time.time()
     try:
         o = ODPS(project=ODPS_PROJECT)
@@ -130,7 +118,7 @@ def get_campaign_spid_pairs(dt: str) -> List[Tuple[str, str]]:
             AND nvl(spid_str, '') <> ''
             GROUP BY request_campaign_id, spid_str
         """
-        with o.execute_sql(sql).open_reader() as reader:
+        with o.execute_sql(sql).open_reader(tunnel=True, limit=False) as reader:
             pairs = [
                 (to_string(record.campaign_id), to_string(record.spid_str))
                 for record in reader
@@ -147,7 +135,6 @@ def get_campaign_spid_pairs(dt: str) -> List[Tuple[str, str]]:
 
 
 def get_spot_info_worker(token: str, spid_str: str, campaign_id: str) -> Optional[Dict]:
-    """多线程采集单个点位详情数据 + 记录单次请求耗时 + 打印error_code错误码"""
     req_start = time.time()
     req_time = get_etl_datetime()
 
@@ -157,15 +144,12 @@ def get_spot_info_worker(token: str, spid_str: str, campaign_id: str) -> Optiona
         resp.raise_for_status()
         data = resp.json()
 
-        # ===================== 核心新增：获取并打印error_code =====================
         error_code = data.get("error_code")
         error_msg = data.get("error_message", "无错误信息")
         req_cost = round(time.time() - req_start, 2)
 
-        # 成功：error_code=0
         if error_code == 0 and isinstance(data.get("result"), dict):
-            print(
-                f"[{req_time}] ✅ 请求成功 | campaign_id={campaign_id}, spid_str={spid_str} | error_code={error_code} | 耗时：{req_cost}s")
+            print(f"[{req_time}] ✅ 请求成功 | campaign_id={campaign_id}, spid_str={spid_str} | error_code={error_code} | 耗时：{req_cost}s")
             result = data["result"]
             return {
                 "request_campaign_id": campaign_id,
@@ -177,7 +161,6 @@ def get_spot_info_worker(token: str, spid_str: str, campaign_id: str) -> Optiona
                 "channel_name": to_string(result.get("channel_name")),
                 "pub_id": to_string(result.get("pub_id")),
                 "publisher": to_string(result.get("publisher")),
-                # 🔥 唯一修改：匹配你的建表字段 s_description
                 "s_description": to_string(result.get("description")),
                 "ad_type": to_string(result.get("ad_type")),
                 "category": to_string(result.get("category")),
@@ -205,38 +188,43 @@ def get_spot_info_worker(token: str, spid_str: str, campaign_id: str) -> Optiona
                 "pre_parse_raw_text": json.dumps(result, ensure_ascii=False),
                 "etl_datetime": get_etl_datetime()
             }
-        # 业务失败：打印真实error_code
         else:
-            print(
-                f"[{req_time}] ❌ 业务失败 | campaign_id={campaign_id}, spid_str={spid_str} | error_code={error_code} | 信息：{error_msg} | 耗时：{req_cost}s")
+            print(f"[{req_time}] ❌ 业务失败 | campaign_id={campaign_id}, spid_str={spid_str} | error_code={error_code} | 信息：{error_msg} | 耗时：{req_cost}s")
             return None
 
-    # 网络/系统异常：标记error_code=-1
     except Exception as e:
         req_cost = round(time.time() - req_start, 2)
-        print(
-            f"[{req_time}] ❌ 请求异常 | campaign_id={campaign_id}, spid_str={spid_str} | error_code=-1 | 错误：{str(e)} | 耗时：{req_cost}s")
+        print(f"[{req_time}] ❌ 请求异常 | campaign_id={campaign_id}, spid_str={spid_str} | error_code=-1 | 错误：{str(e)} | 耗时：{req_cost}s")
         return None
     finally:
         time.sleep(API_CONFIG["request_interval"])
 
 
-# ===================== 主执行流程（分批入库核心逻辑） =====================
+# ===================== 主执行流程（新增精准统计） =====================
 def main():
     total_start = time.time()
     BATCH_SIZE = API_CONFIG["batch_size"]
-    print(f"\n[{get_etl_datetime()}] 🚀 任务开始 | 并发数：{API_CONFIG['max_workers']} | 分批入库阈值：{BATCH_SIZE}条")
+    current_time = get_etl_datetime()
+
+    # ===================== 核心新增：四大专属统计变量 =====================
+    total_api_requests = 0      # spot_info_url 总请求次数
+    api_success_count = 0      # spot_info_url 请求成功数
+    api_failed_count = 0       # spot_info_url 请求失败数
+    collected_data_count = 0   # 数据采集条数（入库有效数据）
+    # ================================================================
+
+    print(f"\n[{current_time}] 🚀 任务开始 | 并发数：{API_CONFIG['max_workers']} | 分批入库阈值：{BATCH_SIZE}条")
 
     try:
-        # 1. 获取认证Token
+        # 1. 获取Token
         token = get_miaozhen_token()
 
-        # 2. 获取campaign_id + spid_str组合列表
+        # 2. 获取任务列表
         campaign_spid_pairs = get_campaign_spid_pairs(PARTITION_DT)
         if not campaign_spid_pairs:
             raise Exception("无有效点位组合，任务终止")
 
-        # 3. 提前清空目标分区（保证当天数据是全量的，避免和旧数据混叠）
+        # 3. 清空目标分区
         o = ODPS(project=ODPS_PROJECT)
         target_table = TABLE_NAMES["spot_info"]
         partition_spec = f"dt='{PARTITION_DT}'"
@@ -245,48 +233,73 @@ def main():
             o.execute_sql(f"ALTER TABLE {target_table} DROP PARTITION ({partition_spec})")
             print(f"\n[{get_etl_datetime()}] 🗑️  已清空目标分区：{target_table} dt={PARTITION_DT}")
 
-        # 4. 多线程采集详情 + 分批入库
-        print(f"\n[{get_etl_datetime()}] 🔗 开始并发请求接口，总任务数：{len(campaign_spid_pairs)}")
-        batch_data = []  # 批次数据缓存（满5000条写入）
-        total_success = 0  # 累计成功采集数
+        # 4. 多线程并发请求 + 统计计数
+        print(f"\n[{get_etl_datetime()}] 🔗 开始并发请求 spot_info 接口，总任务数：{len(campaign_spid_pairs)}")
+        batch_data = []
 
         with ThreadPoolExecutor(API_CONFIG["max_workers"]) as executor:
-            # 提交所有采集任务
             future_map = {
                 executor.submit(get_spot_info_worker, token, spid_str, cid): (spid_str, cid)
                 for cid, spid_str in campaign_spid_pairs
             }
 
-            # 遍历完成的任务，分批收集+写入
             for future in as_completed(future_map):
-                res = future.result()
-                if res:
-                    batch_data.append(res)
-                    total_success += 1
+                # 每处理一个任务：总请求数 +1
+                total_api_requests += 1
+                try:
+                    res = future.result()
+                    if res:
+                        # 成功：成功数+1、采集数+1
+                        batch_data.append(res)
+                        api_success_count += 1
+                        collected_data_count += 1
+                    else:
+                        # 失败：失败数+1
+                        api_failed_count += 1
+                except Exception as e:
+                    # 线程未捕获异常：失败数+1
+                    api_failed_count += 1
+                    spid_str, cid = future_map[future]
+                    print(f"\n[{get_etl_datetime()}] ❌ 线程异常 | campaign_id={cid}, spid_str={spid_str} | 错误：{str(e)}")
 
-                    # 满5000条立即写入，保证内存不溢出+及时入库
-                    if len(batch_data) >= BATCH_SIZE:
-                        # 格式化数据（ODPS写入要求List[List]格式）
-                        write_data = [[v for k, v in item.items()] for item in batch_data]
-                        # 原子性写入（失败则抛异常终止任务）
-                        write_to_odps(target_table, write_data, PARTITION_DT)
-                        # 清空批次缓存，准备下一批
-                        batch_data = []
-                        print(f"\n[{get_etl_datetime()}] 📦 批次入库完成，累计成功采集：{total_success}条")
+                # 分批入库
+                if len(batch_data) >= BATCH_SIZE:
+                    write_data = [[v for k, v in item.items()] for item in batch_data]
+                    write_to_odps(target_table, write_data, PARTITION_DT)
+                    batch_data = []
+                    print(f"\n[{get_etl_datetime()}] 📦 批次入库完成，累计采集：{collected_data_count}条")
 
-        # 5. 处理剩余不足5000条的尾部数据
+        # 5. 剩余数据入库
         if batch_data:
             write_data = [[v for k, v in item.items()] for item in batch_data]
             write_to_odps(target_table, write_data, PARTITION_DT)
-            print(f"\n[{get_etl_datetime()}] 📦 剩余数据入库完成，本次入库：{len(batch_data)}条")
+            print(f"\n[{get_etl_datetime()}] 📦 剩余数据入库完成")
 
-        # 6. 任务总汇总
+        # 6. 最终统计输出
         total_cost = round(time.time() - total_start, 2)
         print(f"\n[{get_etl_datetime()}] 🎉 任务全部完成")
-        print(f"📊 总耗时：{total_cost}s | 总任务数：{len(campaign_spid_pairs)} | 采集成功：{total_success}条")
+        print("=" * 80)
+        print(f"📊 【spot_info_url 接口核心统计】")
+        print(f"  总请求次数 ：{total_api_requests} 次")
+        print(f"  请求成功数 ：{api_success_count} 次")
+        print(f"  请求失败数 ：{api_failed_count} 次")
+        print(f"  数据采集条数：{collected_data_count} 条")
+        print(f"  统计校验   ：{'✅ 数据闭环' if total_api_requests == api_success_count + api_failed_count else '❌ 数据异常'}")
+        print(f"  总耗时     ：{total_cost} s")
+        print("=" * 80)
 
     except Exception as e:
+        # 异常场景也输出统计
+        total_cost = round(time.time() - total_start, 2)
         print(f"\n❌ 任务失败：{str(e)}")
+        print("=" * 80)
+        print(f"📊 【失败场景 - spot_info_url 接口统计】")
+        print(f"  总请求次数 ：{total_api_requests} 次")
+        print(f"  请求成功数 ：{api_success_count} 次")
+        print(f"  请求失败数 ：{api_failed_count} 次")
+        print(f"  数据采集条数：{collected_data_count} 条")
+        print(f"  已运行耗时 ：{total_cost} s")
+        print("=" * 80)
         raise
 
 
