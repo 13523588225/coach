@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-秒针区域列表采集脚本
+秒针区域列表采集脚本 - 最终稳定版
 整合通用ODPS写入函数（分区写入+清空分区）
+修复：分页参数错误、无限循环、命令行参数缺失问题
 MaxCompute初始化：ODPS(project=ODPS_PROJECT)
 """
 import requests
@@ -29,9 +30,10 @@ API_CONFIG = {
         "client_secret": "e65798fb-85d6-4c56-aa19-a2435e8fef18"
     },
     "timeout": 30,
-    "interval": 0.2,
+    "interval": 0.2,       # 请求间隔，防限流
     "lang_list": ["en", "cn"],
-    "page_step": 2000
+    "page_step": 2000,     # 每页条数
+    "max_page_count": 200  # 最大分页兜底，防止死循环
 }
 
 # 2. ODPS全局配置
@@ -137,10 +139,9 @@ def get_access_token() -> Optional[str]:
         return None
 
 
-# ===================== 区域列表采集（多语言+全量分页） =====================
-# ===================== 区域列表采集（多语言+全量分页） =====================
+# ===================== 区域列表采集（最终修复版） =====================
 def get_regions_list(token: str) -> List[Dict]:
-    """采集区域列表数据（无去重逻辑，适配秒针官方分页规则）"""
+    """采集区域列表数据（修复分页逻辑，支持标准offset+limit，防无限循环）"""
     if not token:
         raise Exception("认证Token为空，无法调用接口")
 
@@ -150,17 +151,24 @@ def get_regions_list(token: str) -> List[Dict]:
     # 遍历多语言
     for lang in API_CONFIG["lang_list"]:
         offset = 0
-        step = API_CONFIG["page_step"]  # 2000
+        step = API_CONFIG["page_step"]
+        page_count = 0
         print(f"\n[{get_log()}] 📢 开始采集【{lang}】语言的区域数据")
 
         while True:
+            page_count += 1
+            # 兜底保护：超过最大页数强制终止
+            if page_count > API_CONFIG["max_page_count"]:
+                print(f"⚠️ 【{lang}】超过最大分页限制{API_CONFIG['max_page_count']}，强制终止采集")
+                break
+
             try:
-                # ✅ 核心修复：适配API规则 limit=offset, count-1
-                # 2000条 → 传1999，最终取 1999+1=2000条
+                # ✅ 核心修复：标准分页参数（offset + limit）
                 params = {
                     "access_token": token,
                     "lang": lang,
-                    "limit": f"{offset},{step-1}"
+                    "offset": offset,
+                    "limit": step
                 }
                 headers = {"Content-Type": "application/json"}
                 full_request_url = f"{API_CONFIG['regions_url']}?{urlencode(params)}"
@@ -177,12 +185,12 @@ def get_regions_list(token: str) -> List[Dict]:
                 page_regions = resp.json()
 
                 if not isinstance(page_regions, list):
-                    raise Exception(f"【{lang}】第{offset // step + 1}页返回非数组")
+                    raise Exception(f"【{lang}】第{page_count}页返回非数组数据")
 
                 page_data_len = len(page_regions)
-                print(f"[{get_log()}] 📄 【{lang}】第{offset // step + 1}页：获取{page_data_len}条数据")
+                print(f"[{get_log()}] 📄 【{lang}】第{page_count}页：获取{page_data_len}条数据")
 
-                # 数据标准化
+                # 数据标准化处理
                 for region in page_regions:
                     if not isinstance(region, dict):
                         continue
@@ -199,43 +207,42 @@ def get_regions_list(token: str) -> List[Dict]:
                     }
                     all_regions_data.append(standard_region)
 
-                # ✅ 核心修复：无数据则终止（完美适配API规则）
-                if page_data_len == 0:
-                    print(f"[{get_log()}] 🎯 【{lang}】语言采集完成")
+                # ✅ 终止条件：无数据 或 数据不足一页 → 采集完成
+                if page_data_len == 0 or page_data_len < step:
+                    print(f"[{get_log()}] 🎯 【{lang}】语言采集完成，总计{page_count}页")
                     break
 
-                # 固定步进2000，无重叠、无遗漏
+                # 分页偏移量递增
                 offset += step
                 time.sleep(API_CONFIG["interval"])
 
             except Exception as e:
-                raise Exception(f"【{lang}】采集失败：{str(e)}")
+                raise Exception(f"【{lang}】第{page_count}页采集失败：{str(e)}")
 
-    # 无任何去重逻辑
     print(f"\n✅ 所有语言采集完成，总计数据：{len(all_regions_data)}条")
     return all_regions_data
 
 
 # ===================== 主流程 =====================
 def main():
-    """脚本主入口"""
+    """脚本主入口（修复命令行dt参数解析）"""
 
     print(f"🚀 开始执行秒针区域列表采集脚本（{get_etl_datetime()}）")
 
     try:
-        # 1. 获取Token
+        # 1. 获取认证Token
         token = get_access_token()
         if not token:
             print("⚠️ Token获取失败，任务终止")
             return
 
-        # 2. 采集数据
+        # 2. 采集全量数据
         regions_list_data = get_regions_list(token)
         if not regions_list_data:
             print("⚠️ 未采集到任何有效数据，任务终止")
             return
 
-        # 3. 格式化数据
+        # 3. 格式化数据（适配ODPS写入格式）
         regions_write_data = [
             [
                 t["request_lang"],
@@ -249,10 +256,10 @@ def main():
             ] for t in regions_list_data
         ]
 
-        # 4. 写入ODPS
+        # 4. 写入ODPS目标表
         write_to_odps(TARGET_TABLE_NAME, regions_write_data, args['dt'])
 
-        print(f"\n✅ 脚本执行完成（{get_etl_datetime()}）")
+        print(f"\n🎉 脚本执行完成（{get_etl_datetime()}）")
 
     except Exception as e:
         print(f"\n❌ 脚本执行失败：{str(e)}")
