@@ -319,7 +319,8 @@ DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df
 (
     -- 接口返回核心字段
-    s_level             STRING COMMENT '区域层级（数字型，如0）'
+    request_lang        STRING COMMENT '语言类型：en-英文、cn-中文'
+    ,s_level            STRING COMMENT '区域层级（数字型，如0）'
     ,parent_id          STRING COMMENT '父级区域ID（空字符串表示无父级）'
     ,region_id          STRING COMMENT '区域唯一ID（如000000000000000000000000）'
     ,region_name        STRING COMMENT '区域名称（如Global、Dongying）' -- 补充溯源字段
