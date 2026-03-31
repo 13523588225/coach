@@ -118,7 +118,7 @@ def get_campaign_spid_pairs(dt: str) -> List[Tuple[str, str]]:
             AND nvl(spid_str, '') <> ''
             GROUP BY request_campaign_id, spid_str
         """
-        with o.execute_sql(sql).open_reader() as reader:
+        with o.execute_sql(sql).open_reader(tunnel=True, limit=False) as reader:
             pairs = [
                 (to_string(record.campaign_id), to_string(record.spid_str))
                 for record in reader
