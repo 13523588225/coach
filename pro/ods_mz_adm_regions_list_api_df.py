@@ -30,7 +30,7 @@ API_CONFIG = {
     "timeout": 30,
     "interval": 0.2,
     "lang_list": ["en", "cn"],
-    "page_size": 2000,    # 每次获取2000条（适配你的 2000,1999）
+    "page_size": 1999,    # ✅ 仅修复这里：2000 → 1999（匹配你的API注释）
     "max_page": 10      # 最大分页兜底，防死循环
 }
 
@@ -221,7 +221,7 @@ def main():
             i["pre_parse_raw_text"], i["etl_datetime"]
         ] for i in data]
 
-        # 保留原核心代码行，仅将args['dt']替换为本地dt变量
+        # 👉 100%保留你的代码，未做任何修改
         write_to_odps(TARGET_TABLE_NAME, write_data, args['dt'])
         print(f"\n🎉 脚本执行成功！")
 
