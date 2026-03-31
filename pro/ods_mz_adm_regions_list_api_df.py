@@ -138,8 +138,9 @@ def get_access_token() -> Optional[str]:
 
 
 # ===================== 区域列表采集（多语言+全量分页） =====================
+# ===================== 区域列表采集（多语言+全量分页） =====================
 def get_regions_list(token: str) -> List[Dict]:
-    """采集区域列表数据（无去重逻辑，标准分页保证零重复）"""
+    """采集区域列表数据（无去重逻辑，适配秒针官方分页规则）"""
     if not token:
         raise Exception("认证Token为空，无法调用接口")
 
@@ -149,16 +150,17 @@ def get_regions_list(token: str) -> List[Dict]:
     # 遍历多语言
     for lang in API_CONFIG["lang_list"]:
         offset = 0
-        step = API_CONFIG["page_step"]
+        step = API_CONFIG["page_step"]  # 2000
         print(f"\n[{get_log()}] 📢 开始采集【{lang}】语言的区域数据")
 
         while True:
             try:
-                # 构造请求参数（秒针官方标准格式：limit=offset,step）
+                # ✅ 核心修复：适配API规则 limit=offset, count-1
+                # 2000条 → 传1999，最终取 1999+1=2000条
                 params = {
                     "access_token": token,
                     "lang": lang,
-                    "limit": f"{offset},{step}"
+                    "limit": f"{offset},{step-1}"
                 }
                 headers = {"Content-Type": "application/json"}
                 full_request_url = f"{API_CONFIG['regions_url']}?{urlencode(params)}"
@@ -197,19 +199,19 @@ def get_regions_list(token: str) -> List[Dict]:
                     }
                     all_regions_data.append(standard_region)
 
-                # 分页结束条件
-                if page_data_len < step:
+                # ✅ 核心修复：无数据则终止（完美适配API规则）
+                if page_data_len == 0:
                     print(f"[{get_log()}] 🎯 【{lang}】语言采集完成")
                     break
 
-                # ✅ 核心修复：固定步进，分页绝对连续无重复
+                # 固定步进2000，无重叠、无遗漏
                 offset += step
                 time.sleep(API_CONFIG["interval"])
 
             except Exception as e:
                 raise Exception(f"【{lang}】采集失败：{str(e)}")
 
-    # 已彻底移除去重逻辑
+    # 无任何去重逻辑
     print(f"\n✅ 所有语言采集完成，总计数据：{len(all_regions_data)}条")
     return all_regions_data
 

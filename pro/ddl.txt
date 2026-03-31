@@ -313,6 +313,27 @@ PARTITIONED BY
 )
 ;
 
+DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_tvm_message_list_api_df
+;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_message_list_api_df
+(
+    -- 接口返回核心字段
+    request_type        STRING COMMENT '数据类型 publisher/region'
+    ,id                 STRING COMMENT '配置ID'
+    ,region_name        STRING COMMENT '配置名称（如：乐视超级电视）'
+    ,full_request_url   STRING COMMENT '完整接口请求URL'
+    ,pre_parse_raw_text STRING COMMENT '单条区域数据的原始JSON字符串'
+    ,etl_datetime       STRING COMMENT '数据落地时间（yyyy-MM-dd HH:mm:ss）'
+)
+COMMENT '秒针TVM-配置列表接口数据（渠道/地域）'
+PARTITIONED BY
+(
+    dt                  STRING COMMENT '分区日期（yyyyMMdd）'
+)
+;
+
+
+
 DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df
 ;
 
