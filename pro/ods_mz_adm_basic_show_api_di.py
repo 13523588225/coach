@@ -224,6 +224,7 @@ def fetch_task(task, token, dt):
 
             pre_parse_raw_text = json.dumps(item, ensure_ascii=False)
             spot_id_val = safe_str(attr.get("spot_id"))
+            spot_id_str_val = safe_str(attr.get("spot_id_str"))
 
             # ===================== 【核心】严格匹配最新建表语句的字段顺序 =====================
             row = [
@@ -246,7 +247,7 @@ def fetch_task(task, token, dt):
                 safe_str(data.get("version")),  # s_version
                 safe_str(attr.get("publisher_id")),  # publisher_id
                 spot_id_val,  # spot_id
-                spot_id_val,  # spot_id_str
+                spot_id_str_val,  # spot_id_str
                 safe_str(attr.get("audience")),  # audience
                 safe_str(attr.get("universe")),  # universe
                 safe_str(attr.get("region_id")),  # region_id
