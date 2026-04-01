@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di
 
     full_request_url           STRING COMMENT '完整请求URL',
     pre_parse_raw_text         STRING COMMENT '原始JSON',
-    etl_datetime               STRING COMMENT '采集时间';
+    etl_datetime               STRING COMMENT '采集时间'
 )
 COMMENT '秒针MonitorTV基础展示报表API采集表'
 PARTITIONED BY 
@@ -295,10 +295,10 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_spots_api_df
     ,report_metrics      STRING COMMENT '报表指标（示例：空字符串）'
     ,spot_id             STRING COMMENT '广告位ID（示例：133409879）'
     ,spot_id_str         STRING COMMENT '广告位字符串ID（示例：91m0F）'
-    ,spot_plan           STRING COMMENT '广告位计划（空数组，序列化为"[]"）'
-    ,tracking_tags       STRING COMMENT '追踪标签（嵌套数组，序列化为JSON字符串，示例：[{"impression_url":"https://xxx"},{"click_url":"https://xxx"}]）'
-    ,vending_model       STRING COMMENT '售卖模式（示例：常规购买-常规投放）' -- 三、补充溯源字段
+    ,vending_model       STRING COMMENT '售卖模式（示例：常规购买-常规投放）'
     ,full_request_url    STRING COMMENT '完整接口请求URL'
+    ,spot_plan           STRING COMMENT '广告位计划（空数组，序列化为"[]"）' 
+    ,tracking_tags       STRING COMMENT '追踪标签（嵌套数组，序列化为JSON字符串'
     ,pre_parse_raw_text  STRING COMMENT '单条广告位数据的原始JSON字符串，用于问题追溯'
     ,etl_datetime        STRING COMMENT '数据落地时间（格式：yyyy-MM-dd HH:mm:ss）'
 )
