@@ -29,9 +29,9 @@ PARTITIONED BY
     dt                  STRING COMMENT '分区yyyyMMdd'
 )
 ;
-DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_basic_show_api_di
 ;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_basic_show_api_di
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_basic_show_api_di
 (
     -- 所有 API 请求参数
     request_campaign_id        STRING COMMENT '请求参数-活动ID',
@@ -530,6 +530,50 @@ PARTITIONED BY
 ;
 
 -- OSS 表结构
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_ad_campaign_monthly_his_data_oss_df
+(
+    fiscal_year          STRING COMMENT '财年（如FY26）'
+    ,fiscal_period       STRING COMMENT '财期（如P1）'
+    ,start_date          STRING COMMENT '统计开始日期（格式：2025/6/29）'
+    ,end_date            STRING COMMENT '统计结束日期（格式：2025/8/2）'
+    ,campaign_id         STRING COMMENT '营销活动ID'
+    ,campaign_name       STRING COMMENT '营销活动名称'
+    ,channel             STRING COMMENT '投放渠道（All, OLV, OTV等）'
+    ,target_audience_num STRING COMMENT 'TA目标总人数'
+    ,region              STRING COMMENT '投放区域（All, Wuhan, Qingdao等）'
+    ,partner             STRING COMMENT '合作方（All, IQIYI, Tencent等）'
+    ,platform            STRING COMMENT '投放平台（All, PC, MOB, OTT等）'
+    ,spot                STRING COMMENT '投放点位（All, billboard等）'
+    ,impression          STRING COMMENT '该时间段内IMP数量'
+    ,click               STRING COMMENT '该时间段内CLK数量'
+    ,reach_ttl           STRING COMMENT '该时间段内到达人群总数'
+    ,reach_01            STRING COMMENT '该时间段内到达1次人群总数'
+    ,reach_02            STRING COMMENT '该时间段内到达2次人群总数'
+    ,reach_03            STRING COMMENT '该时间段内到达3次人群总数'
+    ,reach_04            STRING COMMENT '该时间段内到达4次人群总数'
+    ,reach_05            STRING COMMENT '该时间段内到达5次人群总数'
+    ,reach_06            STRING COMMENT '该时间段内到达6次人群总数'
+    ,reach_07            STRING COMMENT '该时间段内到达7次人群总数'
+    ,reach_08            STRING COMMENT '该时间段内到达8次人群总数'
+    ,reach_09            STRING COMMENT '该时间段内到达9次人群总数'
+    ,reach_10            STRING COMMENT '该时间段内到达10次人群总数'
+    ,reach_10_plus       STRING COMMENT '该时间段内到达超过10次人群总数'
+    ,reach_ta_ttl        STRING COMMENT '该时间段内相交目标TA到达人群总数'
+    ,reach_ta_01         STRING COMMENT '该时间段内相交目标TA到达1次人群总数'
+    ,reach_ta_02         STRING COMMENT '该时间段内相交目标TA到达2次人群总数'
+    ,reach_ta_03         STRING COMMENT '该时间段内相交目标TA到达3次人群总数'
+    ,reach_ta_04         STRING COMMENT '该时间段内相交目标TA到达4次人群总数'
+    ,reach_ta_05         STRING COMMENT '该时间段内相交目标TA到达5次人群总数'
+    ,reach_ta_06         STRING COMMENT '该时间段内相交目标TA到达6次人群总数'
+    ,reach_ta_07         STRING COMMENT '该时间段内相交目标TA到达7次人群总数'
+    ,reach_ta_08         STRING COMMENT '该时间段内相交目标TA到达8次人群总数'
+    ,reach_ta_09         STRING COMMENT '该时间段内相交目标TA到达9次人群总数'
+    ,reach_ta_10         STRING COMMENT '该时间段内相交目标TA到达10次人群总数'
+    ,reach_ta_10_plus    STRING COMMENT '该时间段内相交目标TA到达超过10次人群总数'
+)
+COMMENT '活动月表 -- 历史'
+;
+
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_monthly_report_oss_di
 (
     fiscal_year          STRING COMMENT '财年（如FY26）'
@@ -571,13 +615,62 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_monthly_re
     ,reach_ta_10         STRING COMMENT '该时间段内相交目标TA到达10次人群总数'
     ,reach_ta_10_plus    STRING COMMENT '该时间段内相交目标TA到达超过10次人群总数'
 )
-COMMENT '活动周表'
+COMMENT '活动月表'
 PARTITIONED BY 
 (
     dt                   STRING COMMENT '分区日期'
 )
 ;
 
+-- drop table coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_his_data_oss_df;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_ad_campaign_weekly_his_data_oss_df
+(
+    fiscal_year          STRING COMMENT '财年（如FY26）'
+    ,fiscal_period       STRING COMMENT '财期（如P1）'
+    ,fiscal_week         STRING COMMENT '财周（如W1）'
+    ,start_date          STRING COMMENT '统计开始日期（格式：2025/6/29）'
+    ,end_date            STRING COMMENT '统计结束日期（格式：2025/7/5）'
+    ,campaign_id         STRING COMMENT '营销活动ID'
+    ,campaign_name       STRING COMMENT '营销活动名称'
+    ,channel             STRING COMMENT '投放渠道（All, OLV, OTV等）'
+    ,target_audience_num STRING COMMENT 'TA目标总人数'
+    ,region              STRING COMMENT '投放区域（All, Wuhan, Qingdao等）'
+    ,partner             STRING COMMENT '合作方（All, IQIYI, Tencent等）'
+    ,platform            STRING COMMENT '投放平台（All, PC, MOB, OTT等）'
+    ,spot                STRING COMMENT '投放点位（All, billboard等）'
+    ,impression          STRING COMMENT '该时间段内IMP数量'
+    ,click               STRING COMMENT '该时间段内CLK数量'
+    ,reach_ttl           STRING COMMENT '该时间段内到达人群总数'
+    ,reach_01            STRING COMMENT '该时间段内到达1次人群总数'
+    ,reach_02            STRING COMMENT '该时间段内到达2次人群总数'
+    ,reach_03            STRING COMMENT '该时间段内到达3次人群总数'
+    ,reach_04            STRING COMMENT '该时间段内到达4次人群总数'
+    ,reach_05            STRING COMMENT '该时间段内到达5次人群总数'
+    ,reach_06            STRING COMMENT '该时间段内到达6次人群总数'
+    ,reach_07            STRING COMMENT '该时间段内到达7次人群总数'
+    ,reach_08            STRING COMMENT '该时间段内到达8次人群总数'
+    ,reach_09            STRING COMMENT '该时间段内到达9次人群总数'
+    ,reach_10            STRING COMMENT '该时间段内到达10次人群总数'
+    ,reach_10_plus       STRING COMMENT '该时间段内到达超过10次人群总数'
+    ,reach_ta_ttl        STRING COMMENT '该时间段内相交目标TA到达人群总数'
+    ,reach_ta_01         STRING COMMENT '该时间段内相交目标TA到达1次人群总数'
+    ,reach_ta_02         STRING COMMENT '该时间段内相交目标TA到达2次人群总数'
+    ,reach_ta_03         STRING COMMENT '该时间段内相交目标TA到达3次人群总数'
+    ,reach_ta_04         STRING COMMENT '该时间段内相交目标TA到达4次人群总数'
+    ,reach_ta_05         STRING COMMENT '该时间段内相交目标TA到达5次人群总数'
+    ,reach_ta_06         STRING COMMENT '该时间段内相交目标TA到达6次人群总数'
+    ,reach_ta_07         STRING COMMENT '该时间段内相交目标TA到达7次人群总数'
+    ,reach_ta_08         STRING COMMENT '该时间段内相交目标TA到达8次人群总数'
+    ,reach_ta_09         STRING COMMENT '该时间段内相交目标TA到达9次人群总数'
+    ,reach_ta_10         STRING COMMENT '该时间段内相交目标TA到达10次人群总数'
+    ,reach_ta_10_plus    STRING COMMENT '该时间段内相交目标TA到达超过10次人群总数'
+    ,ta_impression       STRING COMMENT '该时间段内曝光TA的IMP总量'
+    ,stable_impression   STRING COMMENT '该时间段内稳定人群曝光总量'
+    ,stable_uv           STRING COMMENT '该时间段内稳定人群UV总量'
+    ,target_freq_imp     STRING COMMENT '该时间段内达到目标频控（1-5次）的IMP总量'
+)
+COMMENT '活动周表--历史'
+;
 -- drop table coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_report_oss_di;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_report_oss_di
 (
