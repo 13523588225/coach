@@ -1,8 +1,8 @@
 -- API表结构
-DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_campaigns_list_api_df
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_campaigns_list_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_campaigns_list_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_campaigns_list_api_df
 (
     campaign_id         STRING COMMENT '活动ID'
     ,start_date         STRING COMMENT '活动开始日期'
@@ -133,10 +133,10 @@ PARTITIONED BY
 ;
 
 -- 创建秒针活动列表分区表
-DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_tvm_campaigns_list_api_df
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_tvm_campaigns_list_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_campaigns_list_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_campaigns_list_api_df
 (
     campaign_id         STRING COMMENT '活动ID（主键）'
     ,start_time         STRING COMMENT '活动开始时间（yyyy-MM-dd）'
@@ -172,9 +172,9 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_tvm_basic_show_api_di
 ;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_basic_show_api_di
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_basic_show_api_di
 (
     -- ===================== 请求参数（核心需求） =====================
     request_campaign_id  STRING COMMENT '请求参数-活动ID'
@@ -273,10 +273,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_list_spots_api_df
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_list_spots_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_spots_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_list_spots_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用list_spots时传入的campaign_id（请求参数）' -- 二、接口返回所有字段（嵌套字段序列化为JSON字符串）
@@ -309,10 +309,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_show_spot_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_show_spot_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_show_spot_api_df
 (
     -- 一、接口调用参数（核心双参数）
     request_campaign_id  STRING COMMENT '调用show_spot时传入的campaign_id（请求参数）'
@@ -345,10 +345,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_list_targets_api_df
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_list_targets_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_list_targets_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_list_targets_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用list_targets时传入的campaign_id（请求参数）' -- 二、接口返回所有字段
@@ -366,9 +366,9 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_tvm_message_list_api_df
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_tvm_message_list_api_df
 ;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_message_list_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_message_list_api_df
 (
     -- 接口返回核心字段
     request_type        STRING COMMENT '数据类型 publisher/region'
@@ -387,10 +387,10 @@ PARTITIONED BY
 
 
 
-DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_adm_regions_list_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_adm_regions_list_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_adm_regions_list_api_df
 (
     -- 接口返回核心字段
     request_lang        STRING COMMENT '语言类型：en-英文、cn-中文'
@@ -409,10 +409,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_list_api_df
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_tvm_spot_list_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_list_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_spot_list_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用spot/list时传入的campaign_id（请求参数）' -- 二、接口result数组内所有字段
@@ -457,10 +457,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_tvm_spot_info_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_spot_info_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_spot_info_api_df
 (
     -- 一、接口调用参数（核心）
     request_campaign_id  STRING COMMENT '调用spot/info时传入的campaign_id（请求参数）'
@@ -506,10 +506,10 @@ PARTITIONED BY
 )
 ;
 
-DROP TABLE IF EXISTS coach_marketing_hub_dev.ods_mz_tvm_target_info_api_df
+DROP TABLE IF EXISTS coach_marketing_hub.ods_mz_tvm_target_info_api_df
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_tvm_target_info_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_tvm_target_info_api_df
 (
     -- 一、接口调用参数（仅campaign_id）
     request_campaign_id  STRING COMMENT '调用接口时传入的campaign_id（请求参数）' -- 二、接口result节点所有字段
@@ -574,7 +574,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_ad_campaign_monthly_his_da
 COMMENT '活动月表 -- 历史'
 ;
 
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_monthly_report_oss_di
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_ad_campaign_monthly_report_oss_di
 (
     fiscal_year          STRING COMMENT '财年（如FY26）'
     ,fiscal_period       STRING COMMENT '财期（如P1）'
@@ -622,7 +622,7 @@ PARTITIONED BY
 )
 ;
 
--- drop table coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_his_data_oss_df;
+-- drop table coach_marketing_hub.ods_mz_ad_campaign_weekly_his_data_oss_df;
 CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_ad_campaign_weekly_his_data_oss_df
 (
     fiscal_year          STRING COMMENT '财年（如FY26）'
@@ -671,8 +671,8 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_ad_campaign_weekly_his_dat
 )
 COMMENT '活动周表--历史'
 ;
--- drop table coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_report_oss_di;
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.ods_mz_ad_campaign_weekly_report_oss_di
+-- drop table coach_marketing_hub.ods_mz_ad_campaign_weekly_report_oss_di;
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.ods_mz_ad_campaign_weekly_report_oss_di
 (
     fiscal_year          STRING COMMENT '财年（如FY26）'
     ,fiscal_period       STRING COMMENT '财期（如P1）'
@@ -726,7 +726,7 @@ PARTITIONED BY
 ;
 
 -- 手工表
-CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.dim_fiscal_date
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.dim_fiscal_date
 (
     FSY_ID         STRING COMMENT '主键ID'
     ,FSY_CODE      STRING COMMENT '财周编码（年份+周数，如20101代表2010年第1周）'
@@ -739,14 +739,37 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub_dev.dim_fiscal_date
     ,FSY_TO_DT     STRING COMMENT '财周结束日期（格式：yyyy-MM-dd）'
     ,FSY_DT        STRING COMMENT '财周内具体日期（格式：yyyy-MM-dd，扩展每一天）'
 )
-COMMENT '财周日历表-含日期明细版本'
-PARTITIONED BY 
-(
-    dt             STRING COMMENT '分区日期(yyyyMMdd)'
-)
+COMMENT '财周日历表'
 ;
 
-CREATE TABLE coach_marketing_hub_dev.ods_mz_user_api_df
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.dim_fiscal_date_detail
+(
+     FSY_CODE               STRING COMMENT '财周编码（年份+周数，如20101代表2010年第1周）'
+    ,FSY_YEAR               STRING COMMENT '财年'
+    ,FSY_YEAR_DT            BIGINT COMMENT '财年内自然日排序序号（按日期升序排列）'
+    ,FSY_QUARTER            STRING COMMENT '财季度（1-4）'
+    ,FSY_QUARTER_DT         BIGINT COMMENT '财季度内自然日排序序号（按日期升序排列）'
+    ,FSY_PERIOD             STRING COMMENT '财期/月周期（1-12）'
+    ,FSY_PERIOD_DT          BIGINT COMMENT '财期内自然日排序序号（按日期升序排列）'
+    ,FSY_WEEK               STRING COMMENT '财周（1-53）'
+    ,FSY_WEEK_DT            BIGINT COMMENT '财周内自然日排序序号（按日期升序排列）'
+    ,FSY_FROM_DT            STRING COMMENT '财周开始日期（格式：yyyyMMdd）'
+    ,FSY_TO_DT              STRING COMMENT '财周结束日期（格式：yyyyMMdd）'
+    ,DT_DATE                STRING COMMENT '日期字符串（格式：yyyyMMdd）'
+    ,STANDARD_DATE          STRING COMMENT '标准日期（格式：yyyy-MM-dd）'
+    ,DT_DATE_LAST_YEAR      STRING COMMENT '去年同期日期字符串（格式：yyyyMMdd）'
+    ,STANDARD_DATE_LAST_YEAR STRING COMMENT '去年同期标准日期（格式：yyyy-MM-dd）'
+    ,DT_DATE_LAST_QUARTER   STRING COMMENT '上财季同期日期字符串（格式：yyyyMMdd）'
+    ,STANDARD_DATE_LAST_QUARTER STRING COMMENT '上财季同期标准日期（格式：yyyy-MM-dd）'
+    ,DT_DATE_LAST_PERIOD    STRING COMMENT '上财期同期日期字符串（格式：yyyyMMdd）'
+    ,STANDARD_DATE_LAST_PERIOD STRING COMMENT '上财期同期标准日期（格式：yyyy-MM-dd）'
+    ,DT_DATE_LAST_WEEK      STRING COMMENT '上财周同期日期字符串（格式：yyyyMMdd）'
+    ,STANDARD_DATE_LAST_WEEK STRING COMMENT '上财周同期标准日期（格式：yyyy-MM-dd）'
+)
+COMMENT '财周日历表-含日期明细+同期对比版本'
+;
+
+CREATE TABLE coach_marketing_hub.ods_mz_user_api_df
 (
     api_source  STRING COMMENT '数据来源'
     ,username   STRING COMMENT '用户名'
