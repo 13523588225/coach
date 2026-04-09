@@ -739,7 +739,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub.dim_fiscal_date
     ,FSY_TO_DT     STRING COMMENT '财周结束日期（格式：yyyy-MM-dd）'
     ,FSY_DT        STRING COMMENT '财周内具体日期（格式：yyyy-MM-dd，扩展每一天）'
 )
-COMMENT '财周日历表'
+COMMENT '财周日历维表'
 ;
 
 CREATE TABLE IF NOT EXISTS coach_marketing_hub.dim_fiscal_date_detail
@@ -766,7 +766,7 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub.dim_fiscal_date_detail
     ,DT_DATE_LAST_WEEK      STRING COMMENT '上财周同期日期字符串（格式：yyyyMMdd）'
     ,STANDARD_DATE_LAST_WEEK STRING COMMENT '上财周同期标准日期（格式：yyyy-MM-dd）'
 )
-COMMENT '财周日历表-含日期明细+同期对比版本'
+COMMENT '财周日历维表明细'
 ;
 
 CREATE TABLE coach_marketing_hub.ods_mz_user_api_df
