@@ -777,3 +777,15 @@ CREATE TABLE coach_marketing_hub.ods_mz_user_api_df
 )
 COMMENT '秒针API接口账号信息'
 ;
+
+CREATE TABLE IF NOT EXISTS coach_marketing_hub.dim_region
+(
+     cn_region_full     STRING COMMENT '中文地域（全名）'
+    ,en_region_full     STRING COMMENT '英文地域（全名）'
+    ,cn_region_short    STRING COMMENT '中文地域（简略）'
+    ,en_region_short    STRING COMMENT '英文地域（简略）'
+    ,extra_support      STRING COMMENT '额外支持'
+)
+PARTITIONED BY (dt STRING COMMENT '数据日期分区')
+COMMENT '地域维度表'
+;
