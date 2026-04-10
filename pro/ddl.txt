@@ -735,9 +735,8 @@ CREATE TABLE IF NOT EXISTS coach_marketing_hub.dim_fiscal_date
     ,FSY_QUARTER   STRING COMMENT '财季度（1-4）'
     ,FSY_PERIOD    STRING COMMENT '财期/月周期（1-12）'
     ,FSY_WEEK      STRING COMMENT '财周（1-53）'
-    ,FSY_FROM_DT   STRING COMMENT '财周开始日期（格式：yyyy-MM-dd）'
-    ,FSY_TO_DT     STRING COMMENT '财周结束日期（格式：yyyy-MM-dd）'
-    ,FSY_DT        STRING COMMENT '财周内具体日期（格式：yyyy-MM-dd，扩展每一天）'
+    ,FSY_FROM_DT   STRING COMMENT '财周开始日期（格式：yyyyMMdd）'
+    ,FSY_TO_DT     STRING COMMENT '财周结束日期（格式：yyyyMMdd）'
 )
 COMMENT '财周日历维表'
 ;
